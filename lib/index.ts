@@ -92,6 +92,7 @@ export type CacheOptions<M extends Model = Model> = {
      */
     getOne?: (model: M) => Promise<void> | void;
   };
+  ttl?: number;
 };
 
 /**
@@ -116,7 +117,10 @@ export type UntypedCacheOptions = {
      */
     getOne?: (model: any) => Promise<void> | void;
   };
+  ttl?: number;
 };
+
+const DEFAULT_TTL = 3600; // Default TTL of 1 hour
 
 export class SequelizeCache {
   #opt: GlobalCacheOptions;
@@ -147,6 +151,7 @@ export class SequelizeCache {
       caching: this.#opt.caching,
       modelOptions: {
         uniqueKeys: options.uniqueKeys as string[][],
+        timeToLive: options.ttl ?? DEFAULT_TTL,
       },
     }, this.#ctx, model);
 

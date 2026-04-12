@@ -17,8 +17,6 @@ import type {
   WhereOptions,
 } from 'sequelize';
 
-const DEFAULT_TTL = 3600; // Default TTL of 1 hour
-
 export type KeyType = 'primary' | 'unique';
 
 const KeyPrefix: Record<KeyType, string> = {
@@ -31,7 +29,7 @@ const prefixLookup = invert(KeyPrefix) as Record<string, KeyType>;
 export type CacheOptions = Pick<GlobalCacheOptions, 'engine' | 'caching'> & {
   modelOptions: {
     uniqueKeys?: string[][];
-    timeToLive?: number;
+    timeToLive: number;
   };
 };
 
@@ -103,7 +101,7 @@ export class SequelizeModelCache<T extends object, M extends Model<T>> {
       unique: uniqueKeys?.map((uK) => Object.keys(uK)).sort() ?? [],
     };
 
-    this.modelTtl = options.modelOptions.timeToLive ?? DEFAULT_TTL;
+    this.modelTtl = options.modelOptions.timeToLive;
   }
 
   /**
@@ -151,7 +149,7 @@ export class SequelizeModelCache<T extends object, M extends Model<T>> {
       );
       this.ctx.log.debug('storing value in cache: %O', setValues);
       // We have to increment this metric here since the underlying class doesn't really have a concept of a cache "miss".
-      this.ctx.metrics.hydrateFunctionGet.inc({
+      this.ctx.metrics.hydrateCacheMiss.inc({
         component: `model-cache-${this.prefix}`,
       });
       await this.cache.set(this.prefix, id, setValues, {
