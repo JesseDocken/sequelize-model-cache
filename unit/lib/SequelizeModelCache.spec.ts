@@ -2,15 +2,12 @@ import { pick } from 'lodash';
 import { DataTypes, Model, Sequelize } from 'sequelize';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { EngineClient } from '../../lib/engines/EngineClient';
+import * as engineFactory from '../../lib/engines/factory';
 import { PeerContext } from '../../lib/peers';
-import { __test as internal, SequelizeModelCache } from '../../lib/SequelizeModelCache';
+import { buildId, decodeIdentifier, resolveType, SequelizeModelCache } from '../../lib/SequelizeModelCache';
 
+import type { EngineClient } from '../../lib/engines/EngineClient';
 import type { CreationOptional, InferAttributes, InferCreationAttributes, ModelStatic } from 'sequelize';
-
-// Mock RedisClient to break the circular dependency with EngineClient.
-// The actual RedisClient is never used in these tests since EngineClient.get() is mocked.
-vi.mock('../../lib/engines/RedisClient', () => ({ RedisClient: class { } }));
 
 // Test Models
 const sequelize = new Sequelize({
@@ -85,7 +82,7 @@ describe('SequelizeModelCache', () => {
     mockEngine.del.mockReset().mockResolvedValue(undefined);
     mockEngine.delMany.mockReset().mockResolvedValue(undefined);
     mockEngine.delAll.mockReset().mockResolvedValue(undefined);
-    vi.spyOn(EngineClient, 'get').mockReturnValue(mockEngine as unknown as EngineClient);
+    vi.spyOn(engineFactory, 'createEngineClient').mockReturnValue(mockEngine as unknown as EngineClient);
   });
 
   describe('modelKeys getter', () => {
@@ -302,50 +299,50 @@ describe('SequelizeModelCache', () => {
 
   describe('buildId', () => {
     it('primary - single ID - no fields', () => {
-      expect(internal.buildId('primary', [123])).toBe('pk§val§123');
+      expect(buildId('primary', [123])).toBe('pk§val§123');
     });
 
     it('primary - single ID - one field', () => {
-      expect(internal.buildId('primary', [123], ['id'])).toBe('pk»key»id§val§123');
+      expect(buildId('primary', [123], ['id'])).toBe('pk»key»id§val§123');
     });
 
     it('primary - mismatch between ID and field', () => {
-      expect(() => internal.buildId('primary', [123], ['id', 'oops']))
+      expect(() => buildId('primary', [123], ['id', 'oops']))
         .toThrow('Expected 1 field(s), but got 2');
     });
 
     it('primary - two IDs - no fields (throws)', () => {
-      expect(() => internal.buildId('primary', [123, '123']))
+      expect(() => buildId('primary', [123, '123']))
         .toThrow('Fields required when multiple identifiers provided or using unique key');
     });
 
     it('primary - two IDs - two fields', () => {
-      expect(internal.buildId('primary', [123, '123'], ['id1', 'id2']))
+      expect(buildId('primary', [123, '123'], ['id1', 'id2']))
         .toBe('pk»key»id1§val§123»key»id2§val§123');
     });
 
     it('unique - single ID - no fields (throws)', () => {
-      expect(() => internal.buildId('unique', [123]))
+      expect(() => buildId('unique', [123]))
         .toThrow('Fields required when multiple identifiers provided or using unique key');
     });
 
     it('unique - single ID - one field', () => {
-      expect(internal.buildId('unique', [123], ['id'])).toBe('uq»key»id§val§123');
+      expect(buildId('unique', [123], ['id'])).toBe('uq»key»id§val§123');
     });
 
     it('unique - mismatch between ID and field', () => {
-      expect(() => internal.buildId('unique', [123], ['id', 'oops']))
+      expect(() => buildId('unique', [123], ['id', 'oops']))
         .toThrow('Expected 1 field(s), but got 2');
     });
 
     it('unique - two IDs - two fields', () => {
-      expect(internal.buildId('unique', [123, '123'], ['id1', 'id2']))
+      expect(buildId('unique', [123, '123'], ['id1', 'id2']))
         .toBe('uq»key»id1§val§123»key»id2§val§123');
     });
 
     it('correctly serializes string, numeric, and array-like IDs', () => {
       const buffer = Buffer.from('0ab');
-      const result = internal.buildId(
+      const result = buildId(
         'primary',
         ['123', 456, 789n, buffer],
         ['id1', 'id2', 'id3', 'id4'],
@@ -356,39 +353,39 @@ describe('SequelizeModelCache', () => {
 
   describe('decodeIdentifier', () => {
     it('empty string - throws an error', () => {
-      expect(() => internal.decodeIdentifier('', { primary: String })).toThrow();
+      expect(() => decodeIdentifier('', { primary: String })).toThrow();
     });
 
     it('invalid identifier - bad type - throws an error', () => {
-      expect(() => internal.decodeIdentifier('abc', { primary: String }))
+      expect(() => decodeIdentifier('abc', { primary: String }))
         .toThrow('Invalid identifier type');
     });
 
     it('invalid identifier - field, but no ID - throws an error', () => {
-      expect(() => internal.decodeIdentifier('pk»key»id', { primary: String }))
+      expect(() => decodeIdentifier('pk»key»id', { primary: String }))
         .toThrow('Invalid identifier structure');
     });
 
     it('pk§val§123 - numeric - returns primary key of number 123', () => {
-      const decoder = internal.decodeIdentifier('pk§val§123', { primary: Number });
+      const decoder = decodeIdentifier('pk§val§123', { primary: Number });
       expect(decoder.type).toBe('primary');
       expect(decoder).toHaveProperty('lookup', 123);
     });
 
     it('pk§val§123 - string - returns primary key of string 123', () => {
-      const decoder = internal.decodeIdentifier('pk§val§123', { primary: String });
+      const decoder = decodeIdentifier('pk§val§123', { primary: String });
       expect(decoder.type).toBe('primary');
       expect(decoder).toHaveProperty('lookup', '123');
     });
 
     it('pk§val§123 - bigint - returns primary key of int 123', () => {
-      const decoder = internal.decodeIdentifier('pk§val§123', { primary: BigInt });
+      const decoder = decodeIdentifier('pk§val§123', { primary: BigInt });
       expect(decoder.type).toBe('primary');
       expect(decoder).toHaveProperty('lookup', 123n);
     });
 
     it('pk»key»id§val§123 - returns primary key of ID 123', () => {
-      const decoder = internal.decodeIdentifier('pk»key»id§val§123', {
+      const decoder = decodeIdentifier('pk»key»id§val§123', {
         primary: { id: String },
       });
       expect(decoder.type).toBe('primary');
@@ -396,7 +393,7 @@ describe('SequelizeModelCache', () => {
     });
 
     it('pk»key»id1§val§123»key»id2§val§123»key»id3§val§123 - returns primary key of IDs', () => {
-      const decoder = internal.decodeIdentifier(
+      const decoder = decodeIdentifier(
         'pk»key»id1§val§123»key»id2§val§123»key»id3§val§123',
         { primary: { id1: String, id2: Number, id3: BigInt } },
       );
@@ -407,7 +404,7 @@ describe('SequelizeModelCache', () => {
     });
 
     it('uq»key»id§val§123 - returns unique key of numeric ID 123', () => {
-      const decoder = internal.decodeIdentifier('uq»key»id§val§123', {
+      const decoder = decodeIdentifier('uq»key»id§val§123', {
         primary: { id: String },
         unique: [{ id: Number }],
       });
@@ -416,7 +413,7 @@ describe('SequelizeModelCache', () => {
     });
 
     it('uq»key»id1§val§123»key»id2§val§123 - correctly decodes using matching field list', () => {
-      const decoder = internal.decodeIdentifier('uq»key»id1§val§123»key»id2§val§123', {
+      const decoder = decodeIdentifier('uq»key»id1§val§123»key»id2§val§123', {
         primary: { id: String },
         unique: [
           { id1: Number, id2: String },
@@ -431,37 +428,37 @@ describe('SequelizeModelCache', () => {
 
   describe('resolveType', () => {
     it('single column - string type - returns String constructor', () => {
-      const type = internal.resolveType({ name: SingleColPk.getAttributes().name });
+      const type = resolveType({ name: SingleColPk.getAttributes().name });
       expect(type).toBe(String);
     });
 
     it('single column - UUID type - returns String constructor', () => {
-      const type = internal.resolveType({ id: SingleColPk.getAttributes().id });
+      const type = resolveType({ id: SingleColPk.getAttributes().id });
       expect(type).toBe(String);
     });
 
     it('single column - numeric - returns Number constructor', () => {
-      const type = internal.resolveType({ type: CompositePk.getAttributes().type });
+      const type = resolveType({ type: CompositePk.getAttributes().type });
       expect(type).toBe(Number);
     });
 
     it('single column - bigint - returns BigInt constructor', () => {
-      const type = internal.resolveType({ id: SingleColPkUniq1.getAttributes().id });
+      const type = resolveType({ id: SingleColPkUniq1.getAttributes().id });
       expect(type).toBe(BigInt);
     });
 
     it('multi column - SingleColPk - returns { id: String, name: String }', () => {
-      const type = internal.resolveType(pick(SingleColPk.getAttributes(), ['id', 'name']));
+      const type = resolveType(pick(SingleColPk.getAttributes(), ['id', 'name']));
       expect(type).toEqual({ id: String, name: String });
     });
 
     it('multi column - CompositePk - returns { type: Number, name: String, baz: Number }', () => {
-      const type = internal.resolveType(pick(CompositePk.getAttributes(), ['type', 'name', 'baz']));
+      const type = resolveType(pick(CompositePk.getAttributes(), ['type', 'name', 'baz']));
       expect(type).toEqual({ type: Number, name: String, baz: Number });
     });
 
     it('multi keys - SingleColPkUniq2 - returns [{ mac: String }, { name: String }]', () => {
-      const type = internal.resolveType([
+      const type = resolveType([
         pick(SingleColPkUniq2.getAttributes(), ['mac']),
         pick(SingleColPkUniq2.getAttributes(), ['name']),
       ]);

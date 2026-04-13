@@ -1,7 +1,4 @@
-import { RedisClient } from './RedisClient';
-import { UnsupportedEngineError } from '../errors/UnsupportedEngineError';
-
-import type { GlobalCacheOptions } from '..';
+import type { GlobalCacheOptions } from '../SequelizeCache';
 import type { PeerContext } from '../peers';
 
 export type CacheEntryOptions = {
@@ -34,13 +31,4 @@ export abstract class EngineClient {
   abstract delMany(prefix: string, keys: string[]): Promise<void>;
 
   abstract delAll(prefix: string): Promise<void>;
-
-  static get(options: CacheClientOptions, context: PeerContext): EngineClient {
-    switch (options.engine.type) {
-      case 'redis':
-        return new RedisClient(options, context);
-      default:
-        throw new UnsupportedEngineError(options.engine.type);
-    }
-  }
 }

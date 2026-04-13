@@ -40,10 +40,16 @@ import type { Logger as WinstonLogger } from 'winston';
  */
 export type GlobalCacheOptions = {
   /**
-   * The connection to the caching service (e.g., Redis, memcache).
+   * Properties related to the caching engine to be used.
    */
   engine: {
+    /**
+     * The connection to the caching service.
+     */
     connection: Redis;
+    /**
+     * The type of engine in use (currently only `redis` is supported).
+     */
     type: 'redis';
   }
   /**
@@ -123,11 +129,19 @@ export type UntypedCacheOptions = {
 
 const DEFAULT_TTL = 3600; // Default TTL of 1 hour
 
+/**
+ * Manages the configuration of the cache and its integration with Sequelize. This acts as the main
+ * interface point and allows you to designate what models you wish to cache.
+ */
 export class SequelizeCache {
   #opt: GlobalCacheOptions;
   #ctx: PeerContext;
-  static #cachedModels = new WeakSet<ModelStatic<any>>();
+  private static cachedModels = new WeakSet<ModelStatic<any>>();
 
+  /**
+   * Creates a new instance of `SequelizeCache` with the provided options.
+   * @param options the configuration options for the cache
+   */
   constructor(options: GlobalCacheOptions) {
     this.#opt = options;
     this.#ctx = new PeerContext(options);
@@ -163,11 +177,11 @@ export class SequelizeCache {
     const originalFindOne = model.findOne;
     const ctx = this.#ctx;
 
-    if (SequelizeCache.#cachedModels.has(model)) {
+    if (SequelizeCache.cachedModels.has(model)) {
       throw new AlreadyCachedError(model);
     }
 
-    SequelizeCache.#cachedModels.add(model);
+    SequelizeCache.cachedModels.add(model);
 
     model.findByPk = async function (
       id?: Identifier,
@@ -353,7 +367,7 @@ export class SequelizeCache {
  * @param candidates all of the candidates to search against
  * @returns an object indicating which candidate matched
  */
-function keysMatchCandidates(
+export function keysMatchCandidates(
   keys: string[],
   candidates: ModelKeyLookup
 ): { type: KeyType; match: string[] } | undefined {
@@ -393,7 +407,7 @@ function keysMatchCandidates(
  * @param options the options provided with the query
  * @returns true if the cache can be used, otherwise false
  */
-function shouldUseCache<M extends Model>(
+export function shouldUseCache<M extends Model>(
   model: ModelStatic<M>,
   keys: ModelKeyLookup,
   id?: Identifier,
@@ -450,7 +464,7 @@ function shouldUseCache<M extends Model>(
         isString(v) ||
         isNumber(v) ||
         typeof v === 'bigint' ||
-        (isObjectLike(v) && isEqual(Object.keys(v as object), [Op.eq]))
+        (isObjectLike(v) && isEqual(Reflect.ownKeys(v as object), [Op.eq]))
     )
   ) {
     return true;
@@ -476,7 +490,8 @@ function normalizeCacheOptions(options?: FindOptions<Model<any>>): FindCacheOpti
   }
 }
 
-export const __test = {
-  keysMatchCandidates,
-  shouldUseCache,
-};
+// This is for tests only.
+export function clearCachedModels() {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+  (SequelizeCache as any).cachedModels = new WeakSet();
+}

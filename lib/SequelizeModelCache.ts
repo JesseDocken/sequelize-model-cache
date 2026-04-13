@@ -1,10 +1,11 @@
 import { clone, identity, invert, isArray, isEqual, isFunction, isNil, transform } from 'lodash';
 import { DataTypes } from 'sequelize';
 
-import { EngineClient } from './engines/EngineClient';
+import { createEngineClient } from './engines/factory';
 
-import type { GlobalCacheOptions } from '.';
+import type { EngineClient } from './engines/EngineClient';
 import type { PeerContext } from './peers';
+import type { GlobalCacheOptions } from './SequelizeCache';
 import type {
   AbstractDataType,
   AbstractDataTypeConstructor,
@@ -74,7 +75,7 @@ export class SequelizeModelCache<T extends object, M extends Model<T>> {
   constructor(options: CacheOptions, context: PeerContext, modelCtor: ModelStatic<M>) {
     this.ctx = context;
 
-    this.cache = EngineClient.get({
+    this.cache = createEngineClient({
       engine: options.engine,
       caching: options.caching,
       metricPrefix: `model-cache-${modelCtor.name}`,
@@ -284,7 +285,7 @@ const VALUE_SEPARATOR = '§val§';
  * @throws {Error} if `fields` is not provided but `type` equals `unique`
  * @throws {Error} if `fields` is provided but differs in length from `ids`
  */
-function buildId(type: KeyType, ids: Identifier[], fields?: string[]) {
+export function buildId(type: KeyType, ids: Identifier[], fields?: string[]) {
   if (fields && fields.length !== ids.length) {
     throw new Error(`Expected ${ids.length} field(s), but got ${fields.length}`);
   }
@@ -325,7 +326,7 @@ type DecodedIdentifier =
  * @param typeLookup the mapping of supported lookup methods to a type constructor
  * @returns the mapping between fields and the type constructor
  */
-function decodeIdentifier(
+export function decodeIdentifier(
   id: string,
   typeLookup: {
     primary: KeyColumnType | Record<string, KeyColumnType>;
@@ -425,7 +426,7 @@ function decodeIdentifier(
   throw new Error('Identifier unsupported by model');
 }
 
-function getKeys<M extends Model>(
+export function getKeys<M extends Model>(
   model: ModelStatic<M>,
   uniqueKeys?: string[][]
 ): [KeyColumnDefinition, KeyColumnDefinition[]?] {
@@ -448,7 +449,7 @@ function getKeys<M extends Model>(
   return [primaries, uniques];
 }
 
-function resolveType(
+export function resolveType(
   definition: KeyColumnDefinition | KeyColumnDefinition[]
 ): KeyColumnType | Record<string, KeyColumnType> | Record<string, KeyColumnType>[] {
   const definitions = isArray(definition) ? definition : [definition];
@@ -469,7 +470,7 @@ function resolveType(
   return types;
 }
 
-function buildTypeMapping<M extends Model>(model: ModelStatic<M>) {
+export function buildTypeMapping<M extends Model>(model: ModelStatic<M>) {
   const attributes = Object.entries(model.getAttributes());
   const result: Record<string, (v: any) => any> = {};
 
@@ -480,7 +481,7 @@ function buildTypeMapping<M extends Model>(model: ModelStatic<M>) {
   return result;
 }
 
-function getDataTypeConverter(
+export function getDataTypeConverter(
   type: AbstractDataType | AbstractDataTypeConstructor | string
 ): (v: any) => any {
   if (type instanceof DataTypes.BIGINT) {
@@ -509,13 +510,3 @@ function getDataTypeConverter(
     return String;
   }
 }
-
-/**
- * Exported for testing purposes only. Do not use, as they are liable to change over
- * time.
- */
-export const __test = {
-  buildId,
-  decodeIdentifier,
-  resolveType,
-};
