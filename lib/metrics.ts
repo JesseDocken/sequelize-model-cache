@@ -9,7 +9,7 @@ import type { ICounter, IHistogram, IMetricsProvider } from './peers';
 export class AppMetrics {
   readonly lookupCount: ICounter<'model' | 'method' | 'target'>;
   readonly lookupTime: IHistogram<'model' | 'method' | 'target'>;
-  readonly hydrateFunctionGet: ICounter<'component'>;
+  readonly hydrateCacheMiss: ICounter<'component'>;
   readonly cacheOperation: ICounter<'component' | 'operation'>;
   readonly cacheOperationDuration: IHistogram<'component' | 'operation'>;
   readonly cacheOperationError: ICounter<'component' | 'operation'>;
@@ -27,9 +27,9 @@ export class AppMetrics {
       ['model', 'method', 'target'],
     );
 
-    this.hydrateFunctionGet = provider.createCounter(
-      'hydrate_function_get',
-      'Number of times a hydrate function was called',
+    this.hydrateCacheMiss = provider.createCounter(
+      'hydrate_cache_miss',
+      'The number of times a cache miss triggered hydration of a value',
       ['component'],
     );
 

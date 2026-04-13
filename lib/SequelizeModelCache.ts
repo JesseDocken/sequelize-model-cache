@@ -1,10 +1,11 @@
 import { clone, identity, invert, isArray, isEqual, isFunction, isNil, transform } from 'lodash';
 import { DataTypes } from 'sequelize';
 
-import { EngineClient } from './engines/EngineClient';
+import { createEngineClient } from './engines/factory';
 
-import type { GlobalCacheOptions } from '.';
+import type { EngineClient } from './engines/EngineClient';
 import type { PeerContext } from './peers';
+import type { GlobalCacheOptions } from './SequelizeCache';
 import type {
   AbstractDataType,
   AbstractDataTypeConstructor,
@@ -16,8 +17,6 @@ import type {
   ModelStatic,
   WhereOptions,
 } from 'sequelize';
-
-const DEFAULT_TTL = 3600; // Default TTL of 1 hour
 
 export type KeyType = 'primary' | 'unique';
 
@@ -31,7 +30,7 @@ const prefixLookup = invert(KeyPrefix) as Record<string, KeyType>;
 export type CacheOptions = Pick<GlobalCacheOptions, 'engine' | 'caching'> & {
   modelOptions: {
     uniqueKeys?: string[][];
-    timeToLive?: number;
+    timeToLive: number;
   };
 };
 
@@ -76,7 +75,7 @@ export class SequelizeModelCache<T extends object, M extends Model<T>> {
   constructor(options: CacheOptions, context: PeerContext, modelCtor: ModelStatic<M>) {
     this.ctx = context;
 
-    this.cache = EngineClient.get({
+    this.cache = createEngineClient({
       engine: options.engine,
       caching: options.caching,
       metricPrefix: `model-cache-${modelCtor.name}`,
@@ -93,7 +92,15 @@ export class SequelizeModelCache<T extends object, M extends Model<T>> {
 
     this.lookupTypes = {
       primary: resolveType(primaryKeys) as KeyColumnType | Record<string, KeyColumnType>,
-      unique: uniqueKeys?.map?.((keys) => resolveType(keys)) as Record<string, KeyColumnType>[],
+      unique: uniqueKeys?.map?.((keys) => {
+        const resolved = resolveType(keys);
+        // resolveType collapses single-column definitions to a bare constructor.
+        // Unique keys always need a record so decodeIdentifier can match by field name.
+        if (typeof resolved === 'function') {
+          return { [Object.keys(keys)[0]]: resolved } as Record<string, KeyColumnType>;
+        }
+        return resolved as Record<string, KeyColumnType>;
+      }),
     };
 
     this.typeMapping = buildTypeMapping(modelCtor);
@@ -103,7 +110,7 @@ export class SequelizeModelCache<T extends object, M extends Model<T>> {
       unique: uniqueKeys?.map((uK) => Object.keys(uK)).sort() ?? [],
     };
 
-    this.modelTtl = options.modelOptions.timeToLive ?? DEFAULT_TTL;
+    this.modelTtl = options.modelOptions.timeToLive;
   }
 
   /**
@@ -151,7 +158,7 @@ export class SequelizeModelCache<T extends object, M extends Model<T>> {
       );
       this.ctx.log.debug('storing value in cache: %O', setValues);
       // We have to increment this metric here since the underlying class doesn't really have a concept of a cache "miss".
-      this.ctx.metrics.hydrateFunctionGet.inc({
+      this.ctx.metrics.hydrateCacheMiss.inc({
         component: `model-cache-${this.prefix}`,
       });
       await this.cache.set(this.prefix, id, setValues, {
@@ -278,7 +285,7 @@ const VALUE_SEPARATOR = '§val§';
  * @throws {Error} if `fields` is not provided but `type` equals `unique`
  * @throws {Error} if `fields` is provided but differs in length from `ids`
  */
-function buildId(type: KeyType, ids: Identifier[], fields?: string[]) {
+export function buildId(type: KeyType, ids: Identifier[], fields?: string[]) {
   if (fields && fields.length !== ids.length) {
     throw new Error(`Expected ${ids.length} field(s), but got ${fields.length}`);
   }
@@ -319,11 +326,11 @@ type DecodedIdentifier =
  * @param typeLookup the mapping of supported lookup methods to a type constructor
  * @returns the mapping between fields and the type constructor
  */
-function decodeIdentifier(
+export function decodeIdentifier(
   id: string,
   typeLookup: {
     primary: KeyColumnType | Record<string, KeyColumnType>;
-    unique: undefined | Record<string, KeyColumnType>[];
+    unique?: Record<string, KeyColumnType>[];
   }
 ): DecodedIdentifier {
   const result: {
@@ -402,10 +409,10 @@ function decodeIdentifier(
     return result as DecodedIdentifier;
   }
   const keyNames = Object.keys(result.lookups).sort();
-  const potentials = result.type === 'primary' ? [typeLookup.primary] : (typeLookup.unique ?? []);
+  const potentials: Record<string, KeyColumnType>[] =
+    result.type === 'primary' ? [typeLookup.primary as Record<string, KeyColumnType>] : (typeLookup.unique ?? []);
 
   for (const candidate of potentials) {
-    if (typeof candidate === 'function') continue;
     const candidateKeys = Object.keys(candidate).sort();
     if (isEqual(keyNames, candidateKeys)) {
       // Found a matching candidate, coerce values to the types we were provided.
@@ -419,7 +426,7 @@ function decodeIdentifier(
   throw new Error('Identifier unsupported by model');
 }
 
-function getKeys<M extends Model>(
+export function getKeys<M extends Model>(
   model: ModelStatic<M>,
   uniqueKeys?: string[][]
 ): [KeyColumnDefinition, KeyColumnDefinition[]?] {
@@ -442,7 +449,7 @@ function getKeys<M extends Model>(
   return [primaries, uniques];
 }
 
-function resolveType(
+export function resolveType(
   definition: KeyColumnDefinition | KeyColumnDefinition[]
 ): KeyColumnType | Record<string, KeyColumnType> | Record<string, KeyColumnType>[] {
   const definitions = isArray(definition) ? definition : [definition];
@@ -463,7 +470,7 @@ function resolveType(
   return types;
 }
 
-function buildTypeMapping<M extends Model>(model: ModelStatic<M>) {
+export function buildTypeMapping<M extends Model>(model: ModelStatic<M>) {
   const attributes = Object.entries(model.getAttributes());
   const result: Record<string, (v: any) => any> = {};
 
@@ -474,7 +481,7 @@ function buildTypeMapping<M extends Model>(model: ModelStatic<M>) {
   return result;
 }
 
-function getDataTypeConverter(
+export function getDataTypeConverter(
   type: AbstractDataType | AbstractDataTypeConstructor | string
 ): (v: any) => any {
   if (type instanceof DataTypes.BIGINT) {
@@ -503,13 +510,3 @@ function getDataTypeConverter(
     return String;
   }
 }
-
-/**
- * Exported for testing purposes only. Do not use, as they are liable to change over
- * time.
- */
-export const __test = {
-  buildId,
-  decodeIdentifier,
-  resolveType,
-};

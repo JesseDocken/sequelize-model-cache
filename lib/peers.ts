@@ -2,7 +2,7 @@
 
 import { AppMetrics } from './metrics';
 
-import type { GlobalCacheOptions } from '.';
+import type { GlobalCacheOptions } from './SequelizeCache';
 
 import { format } from 'node:util';
 
