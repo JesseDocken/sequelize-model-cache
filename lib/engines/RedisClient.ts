@@ -1,4 +1,4 @@
-import { EngineClient } from './EngineClient';
+import { BaseClient } from './EngineClient';
 import { CacheUnavailableError } from '../errors/CacheUnavailableError';
 
 import type { CacheClientOptions } from './EngineClient';
@@ -8,7 +8,7 @@ import type { Redis } from 'ioredis';
 export const KEY_DELIMITER = ':';
 const REDIS_NAMESPACE = 'modelcache';
 
-export class RedisClient extends EngineClient {
+export class RedisClient extends BaseClient {
   private conn: Redis;
   private metricPrefix: string;
   private namespace: string;
@@ -89,7 +89,7 @@ export class RedisClient extends EngineClient {
         operation: 'get',
       });
 
-      return this.internalGet<M>(keyPrefix, key);
+      return await this.internalGet<M>(keyPrefix, key);
     } catch (error: any) {
       this.ctx.log.error('Error retrieving key %s from Redis.', redisKey, error);
 

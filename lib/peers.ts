@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 
+import { loadDebug } from './loadDebug';
 import { AppMetrics } from './metrics';
 
 import type { GlobalCacheOptions } from './SequelizeCache';
 
 import { format } from 'node:util';
 
-// ─── Logger ──────────────────────────────────────────────────────────
+// #region Logger abstraction
 
 export interface ILogger {
   debug(data: string | Record<string, unknown>, ...args: unknown[]): void;
@@ -22,12 +23,11 @@ export class NoopLogger implements ILogger {
   error() {}
 }
 
-class DebugLogger implements ILogger {
+export class DebugLogger implements ILogger {
   #debug: (...args: unknown[]) => void;
 
   constructor() {
-    const createDebug = require('debug') as (namespace: string) => (...args: unknown[]) => void;
-    this.#debug = createDebug('sequelize-cache');
+    this.#debug = loadDebug()('sequelize-cache');
   }
 
   debug(data: string | Record<string, unknown>, ...args: unknown[]) {
@@ -51,7 +51,7 @@ class DebugLogger implements ILogger {
   }
 }
 
-class StructuredLogger implements ILogger {
+export class StructuredLogger implements ILogger {
   #logger: {
     debug(...args: unknown[]): unknown;
     info(...args: unknown[]): unknown;
@@ -96,8 +96,9 @@ class StructuredLogger implements ILogger {
   }
 }
 
-// ─── Metrics ─────────────────────────────────────────────────────────
+// #endregion
 
+// #region Metric Abstraction
 export interface ICounter<L extends string = string> {
   inc(labels?: Partial<Record<L, string | number>>): void;
 }
@@ -129,7 +130,7 @@ export class NoopMetricsProvider implements IMetricsProvider {
   }
 }
 
-class PromClientProvider implements IMetricsProvider {
+export class PrometheusProvider implements IMetricsProvider {
   #registry: unknown;
 
   constructor(registry: unknown) {
@@ -179,7 +180,7 @@ class PromClientProvider implements IMetricsProvider {
   }
 }
 
-class OtelProvider implements IMetricsProvider {
+export class OpenTelemetryProvider implements IMetricsProvider {
   #meter: import('@opentelemetry/api').Meter;
 
   constructor(meter: unknown) {
@@ -216,7 +217,9 @@ class OtelProvider implements IMetricsProvider {
   }
 }
 
-// ─── PeerContext ──────────────────────────────────────────────────────
+// #endregion
+
+// #region Dependency abstraction resolution
 
 function resolveLogger(options: GlobalCacheOptions): ILogger {
   if (options.logger) {
@@ -224,7 +227,6 @@ function resolveLogger(options: GlobalCacheOptions): ILogger {
   }
 
   try {
-    require.resolve('debug');
     return new DebugLogger();
   } catch {
     return new NoopLogger();
@@ -240,12 +242,12 @@ function resolveMetrics(options: GlobalCacheOptions): IMetricsProvider {
 
   // prom-client Registry exposes registerMetric
   if ('registerMetric' in metricsOpt && typeof metricsOpt.registerMetric === 'function') {
-    return new PromClientProvider(options.metrics);
+    return new PrometheusProvider(options.metrics);
   }
 
   // OpenTelemetry Meter exposes createCounter
   if ('createCounter' in metricsOpt && typeof metricsOpt.createCounter === 'function') {
-    return new OtelProvider(options.metrics);
+    return new OpenTelemetryProvider(options.metrics);
   }
 
   return new NoopMetricsProvider();
@@ -266,3 +268,5 @@ export class PeerContext {
     this.metrics = new AppMetrics(resolveMetrics(options));
   }
 }
+
+// #endregion

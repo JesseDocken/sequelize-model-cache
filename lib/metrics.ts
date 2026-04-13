@@ -7,6 +7,7 @@ import type { ICounter, IHistogram, IMetricsProvider } from './peers';
  * does nothing.
  */
 export class AppMetrics {
+  readonly provider: IMetricsProvider;
   readonly lookupCount: ICounter<'model' | 'method' | 'target'>;
   readonly lookupTime: IHistogram<'model' | 'method' | 'target'>;
   readonly hydrateCacheMiss: ICounter<'component'>;
@@ -15,6 +16,7 @@ export class AppMetrics {
   readonly cacheOperationError: ICounter<'component' | 'operation'>;
 
   constructor(provider: IMetricsProvider) {
+    this.provider = provider;
     this.lookupCount = provider.createCounter(
       'sequelize_model_cache_lookup',
       'The number of times a cached model processed a lookup, and whether it hit the cache or database',
