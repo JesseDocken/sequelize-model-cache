@@ -2,11 +2,11 @@ import { pick } from 'lodash';
 import { DataTypes, Model, Sequelize } from 'sequelize';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import * as engineFactory from '../../lib/engines/factory';
+import * as engineFactory from '../../lib/engines';
 import { PeerContext } from '../../lib/peers';
 import { buildId, decodeIdentifier, resolveType, SequelizeModelCache } from '../../lib/SequelizeModelCache';
 
-import type { EngineClient } from '../../lib/engines/EngineClient';
+import type { BaseClient } from '../../lib/engines/EngineClient';
 import type { CreationOptional, InferAttributes, InferCreationAttributes, ModelStatic } from 'sequelize';
 
 // Test Models
@@ -82,7 +82,7 @@ describe('SequelizeModelCache', () => {
     mockEngine.del.mockReset().mockResolvedValue(undefined);
     mockEngine.delMany.mockReset().mockResolvedValue(undefined);
     mockEngine.delAll.mockReset().mockResolvedValue(undefined);
-    vi.spyOn(engineFactory, 'createEngineClient').mockReturnValue(mockEngine as unknown as EngineClient);
+    vi.spyOn(engineFactory, 'createEngineClient').mockReturnValue(mockEngine as unknown as BaseClient);
   });
 
   describe('modelKeys getter', () => {

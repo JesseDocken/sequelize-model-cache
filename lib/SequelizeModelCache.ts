@@ -1,9 +1,9 @@
 import { clone, identity, invert, isArray, isEqual, isFunction, isNil, transform } from 'lodash';
 import { DataTypes } from 'sequelize';
 
-import { createEngineClient } from './engines/factory';
+import { createEngineClient } from './engines';
 
-import type { EngineClient } from './engines/EngineClient';
+import type { BaseClient } from './engines/EngineClient';
 import type { PeerContext } from './peers';
 import type { GlobalCacheOptions } from './SequelizeCache';
 import type {
@@ -55,7 +55,7 @@ export type ModelKeyLookup = {
  */
 export class SequelizeModelCache<T extends object, M extends Model<T>> {
   private ctx: PeerContext;
-  private cache: EngineClient;
+  private cache: BaseClient;
   private prefix: string;
   private repository: ModelStatic<M>;
   private lookupTypes: {
@@ -495,9 +495,16 @@ export function getDataTypeConverter(
     type instanceof DataTypes.DATEONLY ||
     type instanceof DataTypes.TIME
   ) {
-    return Date;
-  } else if (type instanceof DataTypes.VIRTUAL) {
-    // Ignore virtual fields.
+    // Date() without `new` ignores its argument and returns the current time as a string.
+    return (v: string | number) => new Date(v);
+  } else if (
+    type instanceof DataTypes.VIRTUAL ||
+    type instanceof DataTypes.JSON ||
+    type instanceof DataTypes.JSONB
+  ) {
+    // No special handling — pass through whatever the driver returned.
+    // VIRTUAL fields aren't stored at all; JSON/JSONB are dialect-dependent
+    // (pg returns parsed objects, mariadb returns raw strings).
     return identity;
   } else if (typeof type === 'string' && type.startsWith('BIT')) {
     // Bitfields are serialized into objects, so we need to convert them back

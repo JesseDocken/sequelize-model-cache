@@ -1,5 +1,5 @@
-import type { GlobalCacheOptions } from '../SequelizeCache';
 import type { PeerContext } from '../peers';
+import type { GlobalCacheOptions } from '../SequelizeCache';
 
 export type CacheEntryOptions = {
   expiresIn?: number;
@@ -13,7 +13,7 @@ export type CacheClientOptions = Pick<GlobalCacheOptions, 'engine' | 'caching'> 
   };
 }
 
-export abstract class EngineClient {
+export abstract class BaseClient {
   protected opts: CacheClientOptions;
   protected ctx: PeerContext;
 
