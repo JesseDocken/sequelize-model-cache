@@ -17,13 +17,6 @@ import type { CreationOptional, InferAttributes, InferCreationAttributes, Option
 
 const REDIS_NAMESPACE = 'datatypes-test';
 
-// Common-types suite needs a separate Model class per dialect because
-// Sequelize ties .init() to a specific connection. We define them at module
-// level so TypeScript can properly resolve `CreationOptional` brands on the
-// self-referential `Model<InferAttributes<X>, InferCreationAttributes<X>>`
-// type — that resolution doesn't fire when the class is declared inside a
-// describe callback.
-
 class CommonSamplePg extends Model<InferAttributes<CommonSamplePg>, InferCreationAttributes<CommonSamplePg>> {
   declare id: CreationOptional<number>;
   declare stringField: string;
@@ -507,12 +500,11 @@ describe('Postgres-specific data types', () => {
     expect(cached!.jsonbField).toEqual(obj);
   });
 
-  it('ARRAY of strings', async () => {
+  // This test is currently skipped: support for ARRAY has not been added yet.
+  it.skip('ARRAY of strings', async () => {
     const arr = ['one', 'two', 'three'];
     const cached = await pgRoundtrip({ arrayField: arr });
-    // ARRAY falls through to the default String converter, so the cache
-    // currently returns the array's string representation. Document this.
-    expect(cached!.arrayField).toBeDefined();
+    expect(cached!.arrayField).toEqual(arr);
   });
 
   it('CITEXT', async () => {

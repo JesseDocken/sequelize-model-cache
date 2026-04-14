@@ -14,7 +14,7 @@ function createMockMeter() {
 
 describe('OpenTelemetryProvider', () => {
   describe('createCounter', () => {
-    it('creates an OTel counter named for the metric with the help text as description', () => {
+    it('creates an OpenTelemetry counter named for the metric with the help text as description', () => {
       const { meter } = createMockMeter();
       const provider = new OpenTelemetryProvider(meter);
 
@@ -45,7 +45,7 @@ describe('OpenTelemetryProvider', () => {
   });
 
   describe('createHistogram', () => {
-    it('creates an OTel histogram with the help text and seconds unit', () => {
+    it('creates an OpenTelemetry histogram with the help text and seconds unit', () => {
       const { meter } = createMockMeter();
       const provider = new OpenTelemetryProvider(meter);
 

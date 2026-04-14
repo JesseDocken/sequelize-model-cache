@@ -1,8 +1,8 @@
 import Redis from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { PeerContext } from '../lib/peers';
 import { RedisClient } from '../lib/engines/RedisClient';
+import { PeerContext } from '../lib/peers';
 
 import type { CacheClientOptions } from '../lib/engines/EngineClient';
 

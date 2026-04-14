@@ -77,7 +77,7 @@ describe('cache lifecycle', () => {
   it('findByPk hydrates from the database on cache miss, then serves from cache', async () => {
     const testModel = await TestModel.create({ abc: '123', def: '456', ghi: '789' });
 
-    // First read — cache miss, should hit the database and populate cache.
+    // First read: cache miss, should hit the database and populate cache.
     const first = await TestModel.findByPk(testModel.id, { cache: { enabled: true } });
     expect(first).not.toBeNull();
     expect(first!.def).toBe('456');
@@ -86,7 +86,7 @@ describe('cache lifecycle', () => {
     const redisKeys = await redis.keys(`${CACHE_NAMESPACE}:TestModel:*`);
     expect(redisKeys.length).toBeGreaterThan(0);
 
-    // Second read — cache hit, should return the same data without a DB query.
+    // Second read: cache hit, should return the same data without a DB query.
     const second = await TestModel.findByPk(testModel.id, { cache: { enabled: true } });
     expect(second).not.toBeNull();
     expect(second!.dataValues).toEqual(first!.dataValues);
@@ -95,7 +95,7 @@ describe('cache lifecycle', () => {
   it('findOne by unique key hydrates from the database and serves from cache', async () => {
     await TestModel.create({ abc: '123', def: '456', ghi: '789' });
 
-    // First read — cache miss.
+    // First read: cache miss.
     const first = await TestModel.findOne({
       where: { abc: '123' },
       cache: { enabled: true },
@@ -103,7 +103,7 @@ describe('cache lifecycle', () => {
     expect(first).not.toBeNull();
     expect(first!.def).toBe('456');
 
-    // Second read — cache hit.
+    // Second read: cache hit.
     const second = await TestModel.findOne({
       where: { abc: '123' },
       cache: { enabled: true },
@@ -118,7 +118,7 @@ describe('cache lifecycle', () => {
     // Populate cache.
     await TestModel.findByPk(testModel.id, { cache: { enabled: true } });
 
-    // Update the record — the afterUpdate hook should invalidate the cache.
+    // Update the record: the afterUpdate hook should invalidate the cache.
     testModel.ghi = '000';
     await testModel.save({ hooks: true });
 
@@ -134,7 +134,7 @@ describe('cache lifecycle', () => {
     // Populate cache.
     await TestModel.findByPk(testModel.id, { cache: { enabled: true } });
 
-    // Destroy the record — the afterDestroy hook should invalidate the cache.
+    // Destroy the record: the afterDestroy hook should invalidate the cache.
     await testModel.destroy();
 
     // Next read should return null.
@@ -145,7 +145,7 @@ describe('cache lifecycle', () => {
   it('without cache option, queries go straight to the database', async () => {
     const testModel = await TestModel.create({ abc: '123', def: '456', ghi: '789' });
 
-    // Query without cache option — should not populate cache.
+    // Query without cache option: should not populate cache.
     const result = await TestModel.findByPk(testModel.id);
     expect(result).not.toBeNull();
     expect(result!.def).toBe('456');
@@ -161,7 +161,7 @@ describe('cache lifecycle', () => {
     // Populate cache.
     await TestModel.findByPk(testModel.id, { cache: { enabled: true } });
 
-    // Bulk update — the afterBulkUpdate hook should invalidate.
+    // Bulk update: the afterBulkUpdate hook should invalidate.
     await TestModel.update({ ghi: '999' }, { where: { abc: '123' } });
 
     // Cache should be invalidated; next read gets fresh data.

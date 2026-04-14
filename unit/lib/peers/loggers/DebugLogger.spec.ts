@@ -10,6 +10,7 @@ vi.mock('../../../../lib/loadDebug', () => ({
   loadDebug: () => mocks.createDebug,
 }));
 
+// eslint-disable-next-line import-x/first
 import { DebugLogger } from '../../../../lib/peers/loggers/DebugLogger';
 
 describe('DebugLogger', () => {

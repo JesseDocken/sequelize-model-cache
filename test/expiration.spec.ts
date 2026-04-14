@@ -23,7 +23,7 @@ let sequelize: Sequelize;
 let redis: Redis;
 
 const NAMESPACE = 'expiration-test';
-const SHORT_TTL = 30; // seconds — short enough to check, but long enough to not expire mid-test
+const SHORT_TTL = 30; // seconds
 
 beforeAll(async () => {
   redis = new Redis({ host: '127.0.0.1', port: 6379, lazyConnect: true });

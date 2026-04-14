@@ -81,9 +81,8 @@ describe('PrometheusProvider', () => {
       const stop = h.startTimer();
       stop();
 
-      const data = await registry.getSingleMetric('timer_test')!.get();
-      const count = data.values.find((v) => v.metricName === 'timer_test_count');
-      expect(count?.value).toBe(1);
+      const text = await registry.metrics();
+      expect(text).toContain('timer_test_count 1');
     });
 
     it('passes labels through start and stop', async () => {
@@ -94,9 +93,8 @@ describe('PrometheusProvider', () => {
       const stop = h.startTimer({ kind: 'a' });
       stop();
 
-      const data = await registry.getSingleMetric('label_test')!.get();
-      const counts = data.values.filter((v) => v.metricName === 'label_test_count');
-      expect(counts.some((c) => c.labels.kind === 'a' && c.value === 1)).toBe(true);
+      const text = await registry.metrics();
+      expect(text).toContain('label_test_count{kind="a"} 1');
     });
   });
 });

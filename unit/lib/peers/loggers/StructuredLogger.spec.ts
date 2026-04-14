@@ -1,8 +1,9 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { describe, expect, it, vi } from 'vitest';
 
 import { StructuredLogger } from '../../../../lib/peers/loggers/StructuredLogger';
 
-function createMockLogger() {
+function createMockLogger(): any {
   return {
     debug: vi.fn(),
     info: vi.fn(),
@@ -15,7 +16,7 @@ describe('StructuredLogger', () => {
   describe.each(['debug', 'info', 'warn', 'error'] as const)('%s()', (method) => {
     it('formats string arguments via util.format before forwarding', () => {
       const inner = createMockLogger();
-      const logger = new StructuredLogger(inner as any);
+      const logger = new StructuredLogger(inner);
 
       logger[method]('hello %s, your id is %d', 'world', 42);
 
@@ -25,7 +26,7 @@ describe('StructuredLogger', () => {
 
     it('passes object payloads through unchanged', () => {
       const inner = createMockLogger();
-      const logger = new StructuredLogger(inner as any);
+      const logger = new StructuredLogger(inner);
       const payload = { foo: 'bar', count: 1 };
 
       logger[method](payload);
@@ -36,7 +37,7 @@ describe('StructuredLogger', () => {
 
     it('does not invoke other log levels', () => {
       const inner = createMockLogger();
-      const logger = new StructuredLogger(inner as any);
+      const logger = new StructuredLogger(inner);
 
       logger[method]('test');
 

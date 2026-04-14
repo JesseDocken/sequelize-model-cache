@@ -1,8 +1,7 @@
 /* eslint-disable import-x/first */
 import { describe, expect, it, vi } from 'vitest';
 
-// Hoisted: when peers.ts loads below, loadDebug is already replaced with a
-// stub that throws, simulating the `debug` peer dependency not being installed.
+// Simulates the `debug` peer dependency not being installed.
 vi.mock('../../lib/loadDebug', () => ({
   loadDebug: () => { throw new Error('Cannot resolve debug'); },
 }));
