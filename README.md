@@ -11,6 +11,8 @@ A caching layer for [Sequelize](https://sequelize.org/) models backed by high-pe
 
 For a deeper look at how the library operates internally — query routing, invalidation guarantees, failure modes, and operational considerations — see [ARCHITECTURE.md](ARCHITECTURE.md).
 
+__NOTE:__ The API for this library is still evolving and may break compatibility. Use in production environments at your own discretion.
+
 ## Installation
 
 *Note:* You must be running in Node 20 or higher.
