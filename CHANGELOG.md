@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add support to specify jitter for TTL
+
 ## [0.5.3] - 2026-05-01
 
 - Updating the CI pipeline to add testing and support of Node 24
