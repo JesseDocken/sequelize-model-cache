@@ -14,6 +14,7 @@ import { Op } from 'sequelize';
 import { CachedModelInstance } from './CachedModelInstance';
 import { AlreadyCachedError } from './errors/AlreadyCachedError';
 import { CacheUnavailableError } from './errors/CacheUnavailableError';
+import { ConfigurationError } from './errors/ConfigurationError';
 import { NonconformantQueryError } from './errors/NonconformantQueryError';
 import { PeerContext } from './peers';
 
@@ -87,7 +88,9 @@ export type TtlOptions = {
    */
   seconds: number;
   /**
-   * A percentage of jitter to apply to the time-to-live. When omitted, no jitter will be applied.
+   * A percentage of jitter to apply to the time-to-live. When omitted, no jitter will be applied. For
+   * example, a value of 0.1 would be a 10% jitter, allowing for a range of (seconds × 0.9) to (seconds
+   * × 1.1). Any value outside the range of 0 ≤ jitter < 1 will cause an error to be thrown.
    */
   jitter?: number;
 }
@@ -115,7 +118,7 @@ export type CacheOptions<M extends Model = Model> = {
     getOne?: (model: M) => Promise<void> | void;
   };
   /**
-   * Time-to-live for cached instances of this model.
+   * Time-to-live in seconds for cached instances of this model.
    */
   ttl?: number | TtlOptions;
 };
@@ -143,7 +146,7 @@ export type UntypedCacheOptions = {
     getOne?: (model: any) => Promise<void> | void;
   };
   /**
-   * Time-to-live for cached instances of this model.
+   * Time-to-live in seconds for cached instances of this model.
    */
   ttl?: number | TtlOptions;
 };
@@ -523,10 +526,19 @@ function normalizeTtlOptions(ttl?: number | TtlOptions): TtlOptions {
       seconds: DEFAULT_TTL,
     };
   } else if (isNumber(ttl)) {
+    if (ttl < 0) {
+      throw new ConfigurationError(`TTL set to an invalid value: ${ttl}`);
+    }
     return {
       seconds: ttl,
     };
   } else {
+    if (ttl.seconds < 0) {
+      throw new ConfigurationError(`TTL set to an invalid value: ${ttl.seconds}`);
+    }
+    if (ttl.jitter && (ttl.jitter < 0 || ttl.seconds >= 1.0)) {
+      throw new ConfigurationError(`TTL jitter set to an invalid value: ${ttl.jitter}`);
+    }
     return ttl;
   }
 }

@@ -1,9 +1,11 @@
 import { DataTypes, Model, Op, Sequelize } from 'sequelize';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ConfigurationError } from '../../lib/errors/ConfigurationError';
 import { clearCachedModels, keysMatchCandidates, SequelizeCache, shouldUseCache } from '../../lib/SequelizeCache';
 
 import type { ModelKeyLookup } from '../../lib/CachedModelInstance';
+import type { CacheOptions } from '../../lib/SequelizeCache';
 import type { CreationOptional, InferAttributes, InferCreationAttributes } from 'sequelize';
 
 vi.mock('../../lib/CachedModelInstance', () => ({ CachedModelInstance: class { } }));
@@ -40,17 +42,79 @@ describe('SequelizeCache', () => {
     clearCachedModels();
   })
 
-  it('constructor returns instance', () => {
-    const inst = new SequelizeCache({
-      engine: {
-        connection: null as any,
-        type: 'redis',
-      },
+  describe('constructor', () => {
+    it('constructor returns instance', () => {
+      const inst = new SequelizeCache({
+        engine: {
+          connection: null as any,
+          type: 'redis',
+        },
+      });
+      expect(inst).to.be.instanceOf(SequelizeCache);
     });
-    expect(inst).to.be.instanceOf(SequelizeCache);
   });
 
   describe('cacheModel', () => {
+    it('constructor throws if TTL is < 0.0', () => {
+      const cache = new SequelizeCache({
+        engine: {
+          connection: null as any,
+          type: 'redis',
+        },
+      });
+
+      expect(() => cache.cacheModel(SingleColPk, {
+        ttl: -1,
+      })).toThrow(ConfigurationError);
+      expect(() => cache.cacheModel(SingleColPk, {
+        ttl: {
+          seconds: -1,
+        },
+      })).toThrow(ConfigurationError);
+    });
+
+    it('constructor throws if TTL jitter is < 0.0', () => {
+      function config(jitter: number): CacheOptions {
+        return {
+          ttl: {
+            seconds: 100,
+            jitter,
+          },
+        };
+      }
+
+      const cache = new SequelizeCache({
+        engine: {
+          connection: null as any,
+          type: 'redis',
+        },
+      });
+
+      expect(() => cache.cacheModel(SingleColPk, config(-1))).toThrow(ConfigurationError);
+      expect(() => cache.cacheModel(SingleColPk, config(-0.5))).toThrow(ConfigurationError);
+    });
+
+    it('constructor throws if TTL jitter is >= 1.0', () => {
+      function config(jitter: number): CacheOptions {
+        return {
+          ttl: {
+            seconds: 100,
+            jitter,
+          },
+        };
+      }
+
+      const cache = new SequelizeCache({
+        engine: {
+          connection: null as any,
+          type: 'redis',
+        },
+      });
+
+      expect(() => cache.cacheModel(SingleColPk, config(1))).toThrow(ConfigurationError);
+      expect(() => cache.cacheModel(SingleColPk, config(1.5))).toThrow(ConfigurationError);
+    });
+
     it('replaces findOne and findByPk', () => {
       const originalFindOne = SingleColPk.findOne;
       const originalFindByPk = SingleColPk.findByPk;
