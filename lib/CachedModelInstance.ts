@@ -7,7 +7,7 @@ import { InvalidIdentifierError } from './errors/InvalidIdentifierError';
 
 import type { BaseClient } from './engines/EngineClient';
 import type { PeerContext } from './peers';
-import type { GlobalCacheOptions } from './SequelizeCache';
+import type { GlobalCacheOptions, TtlOptions } from './SequelizeCache';
 import type {
   AbstractDataType,
   AbstractDataTypeConstructor,
@@ -32,7 +32,7 @@ const prefixLookup = invert(KeyPrefix) as Record<string, KeyType>;
 export type CacheOptions = Pick<GlobalCacheOptions, 'engine' | 'caching'> & {
   modelOptions: {
     uniqueKeys?: string[][];
-    timeToLive: number;
+    timeToLive: TtlOptions;
   };
 };
 
@@ -65,7 +65,7 @@ export class CachedModelInstance<T extends object, M extends Model<T>> {
     unique: undefined | Record<string, KeyColumnType>[];
   };
   private keyNames: ModelKeyLookup;
-  private modelTtl: number;
+  private modelTtl: TtlOptions;
   private typeMapping: Record<string, (v: any) => KeyColumnValue>;
 
   /**
@@ -164,7 +164,7 @@ export class CachedModelInstance<T extends object, M extends Model<T>> {
         component: `model-cache-${this.prefix}`,
       });
       await this.cache.set(this.prefix, id, setValues, {
-        expiresIn: this.modelTtl,
+        expiresIn: calculateMsecWithJitter(this.modelTtl),
       });
       return setValues;
     }
@@ -519,4 +519,13 @@ export function getDataTypeConverter(
     // Use string as a default.
     return String;
   }
+}
+
+export function calculateMsecWithJitter(modelTtl: TtlOptions): number {
+  if (!modelTtl.jitter || modelTtl.jitter === 0) {
+    return modelTtl.seconds * 1000;
+  }
+  const jitterRange = modelTtl.seconds * modelTtl.jitter * 2;
+  const jitter = (Math.random() - 0.5) * jitterRange;
+  return Math.ceil((modelTtl.seconds + jitter) * 1000);
 }

@@ -1,12 +1,13 @@
 import { pick } from 'lodash';
 import { DataTypes, Model, Sequelize } from 'sequelize';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { buildId, CachedModelInstance, decodeIdentifier, resolveType } from '../../lib/CachedModelInstance';
+import { buildId, CachedModelInstance, calculateMsecWithJitter, decodeIdentifier, resolveType } from '../../lib/CachedModelInstance';
 import * as engineFactory from '../../lib/engines';
 import { PeerContext } from '../../lib/peers';
 
 import type { BaseClient } from '../../lib/engines/EngineClient';
+import type { TtlOptions } from '../../lib/SequelizeCache';
 import type { CreationOptional, InferAttributes, InferCreationAttributes, ModelStatic } from 'sequelize';
 
 // Test Models
@@ -67,10 +68,15 @@ const mockEngine = {
 
 const ctx = new PeerContext({ engine: { connection: {} as any, type: 'redis' } });
 
-function createCache(model: ModelStatic<any>, opts?: { uniqueKeys?: string[][] }) {
+function createCache(model: ModelStatic<any>, opts?: { uniqueKeys?: string[][], ttl?: TtlOptions }) {
   return new CachedModelInstance({
     engine: { connection: {} as any, type: 'redis' },
-    modelOptions: { uniqueKeys: opts?.uniqueKeys, timeToLive: 3600 },
+    modelOptions: {
+      uniqueKeys: opts?.uniqueKeys,
+      timeToLive: opts?.ttl ?? {
+        seconds: 3600,
+      },
+    },
   }, ctx, model);
 }
 
@@ -463,6 +469,38 @@ describe('CachedModelInstance', () => {
         pick(SingleColPkUniq2.getAttributes(), ['name']),
       ]);
       expect(type).toEqual([{ mac: String }, { name: String }]);
+    });
+  });
+
+  describe('calculateMsecWithJitter', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('returns seconds if jitter not specified', () => {
+      vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(1);
+      const lowest = calculateMsecWithJitter({
+        seconds: 5,
+      });
+      const highest = calculateMsecWithJitter({
+        seconds: 5,
+      });
+      expect(lowest).toBe(5000);
+      expect(highest).toBe(5000);
+    });
+
+    it('returns 4.5 and 5.5 when jitter is 10%', () => {
+      vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(1);
+      const lowest = calculateMsecWithJitter({
+        seconds: 5,
+        jitter: 0.1,
+      });
+      const highest = calculateMsecWithJitter({
+        seconds: 5,
+        jitter: 0.1,
+      });
+      expect(lowest).toBe(4500);
+      expect(highest).toBe(5500);
     });
   });
 });

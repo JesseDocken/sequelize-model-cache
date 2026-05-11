@@ -14,6 +14,7 @@ import { Op } from 'sequelize';
 import { CachedModelInstance } from './CachedModelInstance';
 import { AlreadyCachedError } from './errors/AlreadyCachedError';
 import { CacheUnavailableError } from './errors/CacheUnavailableError';
+import { ConfigurationError } from './errors/ConfigurationError';
 import { NonconformantQueryError } from './errors/NonconformantQueryError';
 import { PeerContext } from './peers';
 
@@ -79,6 +80,22 @@ export type GlobalCacheOptions = {
 };
 
 /**
+ * Time-to-live options for te cached model.
+ */
+export type TtlOptions = {
+  /**
+   * The number of seconds the cached instance should live in the cache.
+   */
+  seconds: number;
+  /**
+   * A percentage of jitter to apply to the time-to-live. When omitted, no jitter will be applied. For
+   * example, a value of 0.1 would be a 10% jitter, allowing for a range of (seconds × 0.9) to (seconds
+   * × 1.1). Any value outside the range of 0 ≤ jitter < 1 will cause an error to be thrown.
+   */
+  jitter?: number;
+}
+
+/**
  * Caching options (for typed models)
  */
 export type CacheOptions<M extends Model = Model> = {
@@ -100,7 +117,10 @@ export type CacheOptions<M extends Model = Model> = {
      */
     getOne?: (model: M) => Promise<void> | void;
   };
-  ttl?: number;
+  /**
+   * Time-to-live in seconds for cached instances of this model.
+   */
+  ttl?: number | TtlOptions;
 };
 
 /**
@@ -125,7 +145,10 @@ export type UntypedCacheOptions = {
      */
     getOne?: (model: any) => Promise<void> | void;
   };
-  ttl?: number;
+  /**
+   * Time-to-live in seconds for cached instances of this model.
+   */
+  ttl?: number | TtlOptions;
 };
 
 const DEFAULT_TTL = 3600; // Default TTL of 1 hour
@@ -168,7 +191,7 @@ export class SequelizeCache {
       caching: this.#opt.caching,
       modelOptions: {
         uniqueKeys: options.uniqueKeys as string[][],
-        timeToLive: options.ttl ?? DEFAULT_TTL,
+        timeToLive: normalizeTtlOptions(options.ttl),
       },
     }, this.#ctx, model);
 
@@ -495,4 +518,27 @@ function normalizeCacheOptions(options?: FindOptions<Model<any>>): FindCacheOpti
 export function clearCachedModels() {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
   (SequelizeCache as any).cachedModels = new WeakSet();
+}
+
+function normalizeTtlOptions(ttl?: number | TtlOptions): TtlOptions {
+  if (!ttl) {
+    return {
+      seconds: DEFAULT_TTL,
+    };
+  } else if (isNumber(ttl)) {
+    if (ttl < 0) {
+      throw new ConfigurationError(`TTL set to an invalid value: ${ttl}`);
+    }
+    return {
+      seconds: ttl,
+    };
+  } else {
+    if (ttl.seconds < 0) {
+      throw new ConfigurationError(`TTL set to an invalid value: ${ttl.seconds}`);
+    }
+    if (ttl.jitter && (ttl.jitter < 0 || ttl.jitter >= 1.0)) {
+      throw new ConfigurationError(`TTL jitter set to an invalid value: ${ttl.jitter}`);
+    }
+    return ttl;
+  }
 }

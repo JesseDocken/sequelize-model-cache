@@ -149,7 +149,10 @@ cache.cacheModel(User, {
     },
   },
   // Optional time-to-live for cached model instances (in seconds, defaults to 1 hour)
-  ttl: 3600,
+  ttl: {
+    seconds: 3600, // Alternatively, `ttl` can be set directly to a number to specify seconds
+    jitter: 0.2, // Specifies a percentage to apply to the TTL of cached instances (optional)
+  },
 });
 ```
 
@@ -178,7 +181,7 @@ const cache = new SequelizeCache({
 
 ## Time-to-Live (TTL)
 
-Cached model instances expire after a configurable time-to-live. The default TTL is 3600 seconds (1 hour). TTL is currently set once during hydration and is not refreshed on subsequent cache hits.
+Cached model instances expire after a configurable time-to-live. The default TTL is 3600 seconds (1 hour). TTL is currently set once during hydration and is not refreshed on subsequent cache hits. A jitter value can also be specified which will randomly adjust the TTL for a cached instance by ±jitter%. For example, a jitter percentage of 0.1 and a TTL of 1000 seconds would apply a final TTL value between 900 and 1100 seconds. This can be useful if you want to avoid a stampeding herd scenario where a large number of instances are invalidated simultaneously.
 
 ## Error Handling
 
@@ -194,6 +197,7 @@ The library follows a consistent error contract designed to ensure that caching 
 
 | Error | When it's thrown |
 |-------|-----------------|
+| `ConfigurationError` | Thrown if a configuration parameter is unacceptable |
 | `CacheUnavailableError` | Thrown on cache read when `fallback: 'fail'` and Redis is unavailable or returns an error |
 | `UnsupportedEngineError` | Thrown during initialization if the `engine` option is not recognized |
 

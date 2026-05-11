@@ -80,9 +80,9 @@ describe('RedisClient', () => {
       expect(ttl).toBe(-1);
     });
 
-    it('set with TTL applies the expiry in seconds', async () => {
+    it('set with TTL applies the expiry in milliseconds', async () => {
       const client = createClient(redis);
-      await client.set('model', 'with-ttl', { v: 1 }, { expiresIn: 60 });
+      await client.set('model', 'with-ttl', { v: 1 }, { expiresIn: 60000 });
 
       const ttl = await redis.ttl(`${NAMESPACE}:model:with-ttl`);
       expect(ttl).toBeGreaterThan(0);

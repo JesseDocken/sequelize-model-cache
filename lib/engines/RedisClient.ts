@@ -46,7 +46,7 @@ export class RedisClient extends BaseClient {
       const redisValue = JSON.stringify(value, this.opts.codecs.serializer);
 
       if (options?.expiresIn) {
-        await this.conn.set(redisKey, redisValue, 'EX', options.expiresIn);
+        await this.conn.set(redisKey, redisValue, 'PX', options.expiresIn);
       } else {
         await this.conn.set(redisKey, redisValue);
       }
