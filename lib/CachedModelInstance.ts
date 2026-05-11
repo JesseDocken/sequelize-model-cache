@@ -525,7 +525,7 @@ export function calculateMsecWithJitter(modelTtl: TtlOptions): number {
   if (!modelTtl.jitter || modelTtl.jitter === 0) {
     return modelTtl.seconds * 1000;
   }
-  const jitterRange = modelTtl.jitter ? modelTtl.seconds * modelTtl.jitter * 2 : 0;
+  const jitterRange = modelTtl.seconds * modelTtl.jitter * 2;
   const jitter = (Math.random() - 0.5) * jitterRange;
   return Math.ceil((modelTtl.seconds + jitter) * 1000);
 }

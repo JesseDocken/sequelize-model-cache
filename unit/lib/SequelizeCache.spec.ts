@@ -55,7 +55,7 @@ describe('SequelizeCache', () => {
   });
 
   describe('cacheModel', () => {
-    it('constructor throws if TTL is < 0.0', () => {
+    it('throws if TTL is < 0.0', () => {
       const cache = new SequelizeCache({
         engine: {
           connection: null as any,
@@ -73,7 +73,7 @@ describe('SequelizeCache', () => {
       })).toThrow(ConfigurationError);
     });
 
-    it('constructor throws if TTL jitter is < 0.0', () => {
+    it('throws if TTL jitter is < 0.0', () => {
       function config(jitter: number): CacheOptions {
         return {
           ttl: {
@@ -94,7 +94,7 @@ describe('SequelizeCache', () => {
       expect(() => cache.cacheModel(SingleColPk, config(-0.5))).toThrow(ConfigurationError);
     });
 
-    it('constructor throws if TTL jitter is >= 1.0', () => {
+    it('throws if TTL jitter is >= 1.0', () => {
       function config(jitter: number): CacheOptions {
         return {
           ttl: {
@@ -113,6 +113,22 @@ describe('SequelizeCache', () => {
 
       expect(() => cache.cacheModel(SingleColPk, config(1))).toThrow(ConfigurationError);
       expect(() => cache.cacheModel(SingleColPk, config(1.5))).toThrow(ConfigurationError);
+    });
+
+    it('accepts TTL and jitter within valid ranges', () => {
+      const cache = new SequelizeCache({
+        engine: {
+          connection: null as any,
+          type: 'redis',
+        },
+      });
+
+      expect(() => cache.cacheModel(SingleColPk, {
+        ttl: {
+          seconds: 5,
+          jitter: 0.5,
+        },
+      })).to.not.throw(ConfigurationError);
     });
 
     it('replaces findOne and findByPk', () => {

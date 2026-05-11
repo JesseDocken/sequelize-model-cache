@@ -536,7 +536,7 @@ function normalizeTtlOptions(ttl?: number | TtlOptions): TtlOptions {
     if (ttl.seconds < 0) {
       throw new ConfigurationError(`TTL set to an invalid value: ${ttl.seconds}`);
     }
-    if (ttl.jitter && (ttl.jitter < 0 || ttl.seconds >= 1.0)) {
+    if (ttl.jitter && (ttl.jitter < 0 || ttl.jitter >= 1.0)) {
       throw new ConfigurationError(`TTL jitter set to an invalid value: ${ttl.jitter}`);
     }
     return ttl;
