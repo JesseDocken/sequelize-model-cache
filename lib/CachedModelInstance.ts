@@ -56,10 +56,12 @@ export type ModelKeyLookup = {
  * underlying database table, stored in the cache, and returned as a Sequelize model instance.
  */
 export class CachedModelInstance<T extends object, M extends Model<T>> {
+  public repository: ModelStatic<M>;
+  public readonly options: CacheOptions;
+
   private ctx: PeerContext;
   private cache: BaseClient;
   private prefix: string;
-  private repository: ModelStatic<M>;
   private lookupTypes: {
     primary: KeyColumnType | Record<string, KeyColumnType>;
     unique: undefined | Record<string, KeyColumnType>[];
@@ -76,6 +78,12 @@ export class CachedModelInstance<T extends object, M extends Model<T>> {
    */
   constructor(options: CacheOptions, context: PeerContext, modelCtor: ModelStatic<M>) {
     this.ctx = context;
+    this.options = {
+      caching: {
+        enabled: true,
+        fallbackOverride: 'none',
+      }, ...options
+    };
 
     this.cache = createEngineClient({
       engine: options.engine,

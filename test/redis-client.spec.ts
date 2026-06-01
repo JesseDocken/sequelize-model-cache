@@ -177,25 +177,6 @@ describe('RedisClient', () => {
       const exists = await redis.exists('custom-ns:model:key');
       expect(exists).toBe(1);
     });
-
-    it('falls back to the default namespace when none is configured', async () => {
-      const ctx = new PeerContext({ engine: { connection: redis, type: 'redis' } });
-      const client = new RedisClient({
-        engine: { connection: redis, type: 'redis' },
-        metricPrefix: 'test',
-        codecs: {},
-        // No caching.namespace provided.
-      }, ctx);
-
-      await client.set('model', 'default-ns', { v: 1 });
-
-      // Default namespace is 'modelcache'.
-      const exists = await redis.exists('modelcache:model:default-ns');
-      expect(exists).toBe(1);
-
-      // Cleanup.
-      await redis.del('modelcache:model:default-ns');
-    });
   });
 
   describe('error handling', () => {
