@@ -9,7 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
 - Add support to specify jitter for TTL
+- Added enable parameter to allow for programmatic control of whether or not caching should be enabled at a global or model level
+- Added fallback override parameter to allow for programmatic control overriding whether or not queries should leverage the database or surface errors if attempts to load from the cache fail
 
 ## [0.5.3] - 2026-05-01
 
