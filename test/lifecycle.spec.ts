@@ -15,6 +15,10 @@ class TestModel extends Model<InferAttributes<TestModel>, InferCreationAttribute
   declare ghi: string;
 }
 
+class DefaultNsModel extends Model<InferAttributes<DefaultNsModel>, InferCreationAttributes<DefaultNsModel>> {
+  declare id: CreationOptional<number>;
+}
+
 // Fixtures
 
 let sequelize: Sequelize;
@@ -22,6 +26,7 @@ let redis: Redis;
 let cache: SequelizeCache;
 
 const CACHE_NAMESPACE = 'lifecycle-test';
+const DEFAULT_NAMESPACE = 'modelcache';
 
 beforeAll(async () => {
   redis = new Redis({ host: '127.0.0.1', port: 6379, lazyConnect: true });
@@ -44,6 +49,10 @@ beforeAll(async () => {
     ghi: { type: DataTypes.STRING, allowNull: false },
   }, { sequelize, modelName: 'TestModel', timestamps: false });
 
+  DefaultNsModel.init({
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+  }, { sequelize, modelName: 'DefaultNsModel', timestamps: false });
+
   await sequelize.sync({ force: true });
 
   cache = new SequelizeCache({
@@ -55,15 +64,26 @@ beforeAll(async () => {
     uniqueKeys: [['abc']],
     ttl: 60,
   });
+
+  // A second cache with no namespace configured, to exercise default resolution.
+  const defaultNsCache = new SequelizeCache({
+    engine: { connection: redis, type: 'redis' },
+  });
+  defaultNsCache.cacheModel(DefaultNsModel);
 });
 
 beforeEach(async () => {
-  // Clear all cache keys and reset the table between tests.
+  // Clear all cache keys and reset the tables between tests.
   const keys = await redis.keys(`${CACHE_NAMESPACE}:*`);
   if (keys.length > 0) {
     await redis.del(keys);
   }
+  const defaultNsKeys = await redis.keys(`${DEFAULT_NAMESPACE}:*`);
+  if (defaultNsKeys.length > 0) {
+    await redis.del(defaultNsKeys);
+  }
   await TestModel.destroy({ where: {}, hooks: false });
+  await DefaultNsModel.destroy({ where: {}, hooks: false });
 });
 
 afterAll(async () => {
@@ -140,6 +160,15 @@ describe('cache lifecycle', () => {
     // Next read should return null.
     const gone = await TestModel.findByPk(testModel.id, { cache: { enabled: true } });
     expect(gone).toBeNull();
+  });
+
+  it('applies the default namespace when none is configured', async () => {
+    const inst = await DefaultNsModel.create({});
+
+    await DefaultNsModel.findByPk(inst.id, { cache: { enabled: true } });
+
+    const redisKeys = await redis.keys(`${DEFAULT_NAMESPACE}:DefaultNsModel:*`);
+    expect(redisKeys.length).toBeGreaterThan(0);
   });
 
   it('without cache option, queries go straight to the database', async () => {

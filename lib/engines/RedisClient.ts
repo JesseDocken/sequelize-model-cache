@@ -6,7 +6,6 @@ import type { PeerContext } from '../peers';
 import type { Redis } from 'ioredis';
 
 export const KEY_DELIMITER = ':';
-const REDIS_NAMESPACE = 'modelcache';
 
 export class RedisClient extends BaseClient {
   private conn: Redis;
@@ -17,7 +16,7 @@ export class RedisClient extends BaseClient {
     super(options, context);
     this.conn = options.engine.connection;
     this.metricPrefix = options.metricPrefix;
-    this.namespace = options.caching?.namespace || REDIS_NAMESPACE;
+    this.namespace = options.caching!.namespace!;
   }
 
   /**

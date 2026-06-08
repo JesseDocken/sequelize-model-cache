@@ -1,5 +1,9 @@
 import 'sequelize';
 
+import type { FallbackOverriderFunction } from './lib/SequelizeCache';
+
+type FallbackOption = 'fail' | 'database';
+
 declare module 'sequelize' {
   interface FindOptions<TAttributes = any> {
     cache?: boolean | FindCacheOptions;
@@ -11,7 +15,7 @@ declare module 'sequelize' {
 
   interface FindCacheOptions {
     enabled: boolean;
-    fallback?: 'fail' | 'database';
+    fallback?: FallbackOption | FallbackOverriderFunction;
   }
 
   interface GetAttribOptions {

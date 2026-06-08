@@ -1,8 +1,10 @@
 import {
+  defaults,
   difference,
   has,
   isBoolean,
   isEqual,
+  isFunction,
   isNil,
   isNumber,
   isObjectLike,
@@ -17,8 +19,10 @@ import { CacheUnavailableError } from './errors/CacheUnavailableError';
 import { ConfigurationError } from './errors/ConfigurationError';
 import { NonconformantQueryError } from './errors/NonconformantQueryError';
 import { PeerContext } from './peers';
+import { isPromiseLike } from './util/promises';
 
-import type { KeyType, ModelKeyLookup } from './CachedModelInstance';
+import type { FallbackOption } from '../sequelize-cached-model';
+import type { CacheOptions as ModelCacheOptions, KeyType, ModelKeyLookup } from './CachedModelInstance';
 import type { Meter } from '@opentelemetry/api';
 import type { Redis } from 'ioredis';
 import type { Logger as PinoLogger } from 'pino';
@@ -36,6 +40,10 @@ import type {
   WhereOptions,
 } from 'sequelize';
 import type { Logger as WinstonLogger } from 'winston';
+
+export type EnablementFunction = (() => boolean) | (() => Promise<boolean>);
+export type FallbackOverrideOption = 'none' | FallbackOption;
+export type FallbackOverriderFunction = (() => FallbackOverrideOption) | (() => Promise<FallbackOverrideOption>);
 
 /**
  * Specifies the configuration options for the cache.
@@ -76,6 +84,19 @@ export type GlobalCacheOptions = {
      * collisions.
      */
     namespace?: string;
+    /**
+     * Whether caching is enabled. When a function is passed in, the cache will
+     * only operate when the function returns `true`. By default, the cache will
+     * be enabled.
+     */
+    enabled?: boolean | EnablementFunction;
+    /**
+     * Overrides the cache fallback mechanism for all models that are cached under
+     * this instance. This only impacts queries that attempt to use the cache but
+     * are otherwise unable to. Defaults to 'none', which honors the fallback
+     * mechanism specified on the model or query.
+     */
+    fallbackOverride?: FallbackOverrideOption | FallbackOverriderFunction;
   };
 };
 
@@ -118,6 +139,17 @@ export type CacheOptions<M extends Model = Model> = {
     getOne?: (model: M) => Promise<void> | void;
   };
   /**
+   * Whether caching is enabled. When a function is passed in, the cache will only operate when the function
+   * returns `true`. By default, the cache will be enabled.
+   */
+  enabled?: boolean | EnablementFunction;
+  /**
+   * Overrides the cache fallback mechanism for all queries against this model. This only impacts queries that
+   * attempt to use the cache but are otherwise unable to. Defaults to 'none', which honors the fallback
+   * mechanism specified on the query.
+   */
+  fallbackOverride?: FallbackOverrideOption | FallbackOverriderFunction;
+  /**
    * Time-to-live in seconds for cached instances of this model.
    */
   ttl?: number | TtlOptions;
@@ -146,12 +178,18 @@ export type UntypedCacheOptions = {
     getOne?: (model: any) => Promise<void> | void;
   };
   /**
+   * Whether caching is enabled. When a function is passed in, the cache will only operate when the function
+   * returns `true`. By default, the cache will be enabled.
+   */
+  enabled?: boolean | (() => boolean) | (() => Promise<boolean>);
+  /**
    * Time-to-live in seconds for cached instances of this model.
    */
   ttl?: number | TtlOptions;
 };
 
 const DEFAULT_TTL = 3600; // Default TTL of 1 hour
+const DEFAULT_NAMESPACE = 'modelcache';
 
 /**
  * Manages the configuration of the cache and its integration with Sequelize. This acts as the main
@@ -167,7 +205,14 @@ export class SequelizeCache {
    * @param options the configuration options for the cache
    */
   constructor(options: GlobalCacheOptions) {
-    this.#opt = options;
+    this.#opt = {
+      ...options,
+      caching: defaults({}, options.caching, {
+        namespace: DEFAULT_NAMESPACE,
+        enabled: true,
+        fallbackOverride: 'none',
+      }),
+    };
     this.#ctx = new PeerContext(options);
   }
 
@@ -199,6 +244,8 @@ export class SequelizeCache {
 
     const originalFindByPk = model.findByPk;
     const originalFindOne = model.findOne;
+    const globalOpt = this.#opt;
+    const modelOpt = cache.options;
     const ctx = this.#ctx;
 
     if (SequelizeCache.cachedModels.has(model)) {
@@ -217,7 +264,9 @@ export class SequelizeCache {
       const cacheOpt = normalizeCacheOptions(opt);
       // If scope() has been called against the model, we don't want to use the cache, since that'll bypass
       // the scopes.
-      if (shouldUseCache(this, keys, id, opt)) {
+      // Note: We need to pass in `this` instead of `model` in order to know if the model has been
+      // modified via scoping.
+      if (await shouldUseCache(ctx, globalOpt, modelOpt, this, keys, id, opt)) {
         const metricsOptions = {
           model: model.name,
           method: 'findByPk',
@@ -233,10 +282,9 @@ export class SequelizeCache {
           ctx.metrics.lookupCount.inc(metricsOptions);
           return result;
         } catch (e) {
-          if (
-            e instanceof CacheUnavailableError &&
-            (cacheOpt.fallback !== 'fail')
-          ) {
+          const override = await getOverride(ctx, globalOpt, modelOpt);
+          const effectiveFallback = override === 'none' ? (cacheOpt.fallback ?? 'database') : override;
+          if (e instanceof CacheUnavailableError && effectiveFallback !== 'fail') {
             // If the cache engine is unavailable, fall back to using the database.
             metricsOptions.target = 'database';
             const result = await originalFindByPk.call(this, id, opt);
@@ -268,7 +316,11 @@ export class SequelizeCache {
       // We only support lookups against the primary key or the unique keys specified.
       const cacheOpt = normalizeCacheOptions(opt);
       const key = keysMatchCandidates(Object.keys(opt?.where ?? {}), keys);
-      if (shouldUseCache(this, keys, undefined, opt) && key) {
+      // If scope() has been called against the model, we don't want to use the cache, since that'll bypass
+      // the scopes.
+      // Note: We need to pass in `this` instead of `model` in order to know if the model has been
+      // modified via scoping.
+      if (await shouldUseCache(ctx, globalOpt, modelOpt, this, keys, undefined, opt) && key) {
         const cacheLookupComplete = ctx.metrics.lookupTime.startTimer();
         const metricsOptions = {
           model: model.name,
@@ -301,10 +353,9 @@ export class SequelizeCache {
           ctx.metrics.lookupCount.inc(metricsOptions);
           return result;
         } catch (e) {
-          if (
-            e instanceof CacheUnavailableError &&
-            (cacheOpt.fallback !== 'fail')
-          ) {
+          const override = await getOverride(ctx, globalOpt, modelOpt);
+          const effectiveFallback = override === 'none' ? (cacheOpt.fallback ?? 'database') : override;
+          if (e instanceof CacheUnavailableError && effectiveFallback !== 'fail') {
             // If Redis is unavailable, fall back to the original database.
             metricsOptions.target = 'database';
             const result = await originalFindOne.call(this, opt);
@@ -431,15 +482,57 @@ export function keysMatchCandidates(
  * @param options the options provided with the query
  * @returns true if the cache can be used, otherwise false
  */
-export function shouldUseCache<M extends Model>(
+export async function shouldUseCache<M extends Model>(
+  context: PeerContext,
+  globalOpts: GlobalCacheOptions,
+  modelOpts: ModelCacheOptions,
   model: ModelStatic<M>,
   keys: ModelKeyLookup,
   id?: Identifier,
   options?: FindOptions<Attributes<M>>
-): boolean {
+): Promise<boolean> {
+
   // Leveraging the cache is currently opt-in.
   if (!options?.cache) {
     return false;
+  }
+
+  if (!globalOpts.caching?.enabled) {
+    return false;
+  }
+
+  if (isFunction(globalOpts.caching.enabled)) {
+    try {
+      let enabled = globalOpts.caching.enabled();
+      if (isPromiseLike(enabled)) {
+        enabled = await enabled;
+      }
+      if (!enabled) {
+        return false;
+      }
+    } catch (e) {
+      context.log.debug('Global enablement function threw error', e);
+      return false;
+    }
+  }
+
+  if (!modelOpts.caching?.enabled) {
+    return false;
+  }
+
+  if (isFunction(modelOpts.caching?.enabled)) {
+    try {
+      let enabled = modelOpts.caching.enabled();
+      if (isPromiseLike(enabled)) {
+        enabled = await enabled;
+      }
+      if (!enabled) {
+        return false;
+      }
+    } catch (e) {
+      context.log.debug('Model %s enablement function threw error', model.name, e);
+      return false;
+    }
   }
 
   const cacheOpt = normalizeCacheOptions(options);
@@ -542,3 +635,45 @@ function normalizeTtlOptions(ttl?: number | TtlOptions): TtlOptions {
     return ttl;
   }
 }
+
+async function getOverride(context: PeerContext, globalOpt: GlobalCacheOptions, modelOpt: ModelCacheOptions): Promise<FallbackOverrideOption> {
+  const globalOverride = globalOpt.caching?.fallbackOverride;
+  const modelOverride = modelOpt.caching?.fallbackOverride;
+
+  if (globalOverride !== 'none' && !isFunction(globalOverride) && !isNil(globalOverride)) {
+    return globalOverride;
+  }
+
+  if (isFunction(globalOverride)) {
+    try {
+      let result = globalOverride();
+      if (isPromiseLike(result)) {
+        result = await result;
+      }
+      if (result !== 'none') {
+        return result;
+      }
+    } catch (e) {
+      context.log.debug('Global override function threw error', e);
+    }
+  }
+
+  if (modelOverride !== 'none' && !isFunction(modelOverride) && !isNil(modelOverride)) {
+    return modelOverride;
+  }
+
+  if (isFunction(modelOverride)) {
+    try {
+      let result = modelOverride();
+      if (isPromiseLike(result)) {
+        result = await result;
+      }
+      return result;
+    } catch (e) {
+      context.log.debug('Model override function threw error', e);
+    }
+  }
+
+  return 'none';
+}
+
