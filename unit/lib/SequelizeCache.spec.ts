@@ -663,17 +663,14 @@ describe('SequelizeCache', () => {
       expect(dbFindByPk).not.toHaveBeenCalled();
     });
 
-    // SPEC DEVIATION (issue #20 truth table): a global override of 'database' must use the database
-    // regardless of the query fallback. The impl ANDs `getOverride() !== 'fail'` with
-    // `cacheOpt.fallback !== 'fail'`, so a query fallback of 'fail' incorrectly wins. Expected to FAIL.
+    // A global override of 'database' must use the database regardless of the query fallback.
     it('uses the database when global override is database even if query fallback is fail', async () => {
       const { dbFindByPk } = setup({ enabled: true, fallbackOverride: 'database' });
       await expect(SingleColPk.findByPk('abc', { cache: { enabled: true, fallback: 'fail' } })).resolves.toBe('DB_PK');
       expect(dbFindByPk).toHaveBeenCalled();
     });
 
-    // SPEC DEVIATION (issue #20 truth table): model override 'database' should beat a query 'fail'
-    // when the global override is none. Same AND bug as above. Expected to FAIL.
+    // A model override of 'database' beats a query 'fail' when the global override is none.
     it('uses the database when model override is database even if query fallback is fail', async () => {
       h.modelOptions = { caching: { enabled: true, fallbackOverride: 'database' } };
       const { dbFindByPk } = setup();
@@ -681,11 +678,30 @@ describe('SequelizeCache', () => {
       expect(dbFindByPk).toHaveBeenCalled();
     });
 
-    // SPEC DEVIATION (issue #20): "If a `fallbackOverride` function throws, treat it as 'none'."
-    // The impl does not wrap the override fn in try/catch, so the error propagates instead of
-    // deferring down the chain. Here the throw should defer to the query 'database'. Expected to FAIL.
+    // If a `fallbackOverride` function throws, it is treated as 'none' and the chain defers down
+    // to the query fallback (here, 'database').
     it('treats a throwing global override function as none and defers to query fallback', async () => {
       const { dbFindByPk } = setup({ enabled: true, fallbackOverride: () => { throw new Error('flag service down'); } });
+      await expect(SingleColPk.findByPk('abc', { cache: { enabled: true, fallback: 'database' } })).resolves.toBe('DB_PK');
+      expect(dbFindByPk).toHaveBeenCalled();
+    });
+
+    it('throws when an async global override function resolves to fail', async () => {
+      const { dbFindByPk } = setup({ enabled: true, fallbackOverride: async () => { await Promise.resolve(); return 'fail'; } });
+      await expect(SingleColPk.findByPk('abc', { cache: { enabled: true, fallback: 'database' } })).rejects.toThrow();
+      expect(dbFindByPk).not.toHaveBeenCalled();
+    });
+
+    it('uses the database when an async model override function resolves to database (global none)', async () => {
+      h.modelOptions = { caching: { enabled: true, fallbackOverride: async () => { await Promise.resolve(); return 'database'; } } };
+      const { dbFindByPk } = setup();
+      await expect(SingleColPk.findByPk('abc', { cache: { enabled: true, fallback: 'fail' } })).resolves.toBe('DB_PK');
+      expect(dbFindByPk).toHaveBeenCalled();
+    });
+
+    it('treats a throwing model override function as none and defers to query fallback (global none)', async () => {
+      h.modelOptions = { caching: { enabled: true, fallbackOverride: () => { throw new Error('flag service down'); } } };
+      const { dbFindByPk } = setup();
       await expect(SingleColPk.findByPk('abc', { cache: { enabled: true, fallback: 'database' } })).resolves.toBe('DB_PK');
       expect(dbFindByPk).toHaveBeenCalled();
     });
@@ -719,9 +735,8 @@ describe('SequelizeCache', () => {
       expect(dbFindOne).not.toHaveBeenCalled();
     });
 
-    // SPEC DEVIATION (issue #20): findOne's catch block never consults the override chain
-    // (getOverride), so a global override of 'fail' has no effect. Spec says it should throw.
-    // Expected to FAIL.
+    // findOne consults the override chain: a global override of 'fail' forces a throw even when
+    // the query fallback is 'database'.
     it('throws when global override is fail even if query fallback is database', async () => {
       const { dbFindOne } = setup({ enabled: true, fallbackOverride: 'fail' });
       await expect(SingleColPk.findOne({ where: { id: 'abc' }, cache: { enabled: true, fallback: 'database' } }))
@@ -729,8 +744,7 @@ describe('SequelizeCache', () => {
       expect(dbFindOne).not.toHaveBeenCalled();
     });
 
-    // SPEC DEVIATION (issue #20): a global override of 'database' should use the database even when
-    // the query fallback is 'fail'. findOne ignores the override chain. Expected to FAIL.
+    // A global override of 'database' uses the database even when the query fallback is 'fail'.
     it('uses the database when global override is database even if query fallback is fail', async () => {
       const { dbFindOne } = setup({ enabled: true, fallbackOverride: 'database' });
       await expect(SingleColPk.findOne({ where: { id: 'abc' }, cache: { enabled: true, fallback: 'fail' } }))
