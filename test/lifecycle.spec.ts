@@ -211,4 +211,57 @@ describe('cache lifecycle', () => {
     const gone = await TestModel.findByPk(testModel.id, { cache: { enabled: true } });
     expect(gone).toBeNull();
   });
+
+  it('invalidateByPk evicts the cached record so the next read re-hydrates from the database', async () => {
+    const testModel = await TestModel.create({ abc: '123', def: '456', ghi: '789' });
+
+    // Populate both the primary-key and unique-key cache entries.
+    await TestModel.findByPk(testModel.id, { cache: { enabled: true } });
+    await TestModel.findOne({ where: { abc: '123' }, cache: { enabled: true } });
+    expect((await redis.keys(`${CACHE_NAMESPACE}:TestModel:*`)).length).toBeGreaterThan(0);
+
+    await cache.invalidateByPk(TestModel, testModel.id);
+
+    // Eviction clears the entries; a subsequent cached read has to go back to the database.
+    expect(await redis.keys(`${CACHE_NAMESPACE}:TestModel:*`)).toHaveLength(0);
+    const fresh = await TestModel.findByPk(testModel.id, { cache: { enabled: true } });
+    expect(fresh!.ghi).toBe('789');
+  });
+
+  it('invalidateAll clears every cached instance for the model', async () => {
+    const a = await TestModel.create({ abc: '111', def: '1', ghi: '1' });
+    const b = await TestModel.create({ abc: '222', def: '2', ghi: '2' });
+
+    await TestModel.findByPk(a.id, { cache: { enabled: true } });
+    await TestModel.findByPk(b.id, { cache: { enabled: true } });
+    expect((await redis.keys(`${CACHE_NAMESPACE}:TestModel:*`)).length).toBeGreaterThan(0);
+
+    await cache.invalidateAll(TestModel);
+
+    expect(await redis.keys(`${CACHE_NAMESPACE}:TestModel:*`)).toHaveLength(0);
+  });
+
+  it('uncacheModel detaches caching: lookups bypass Redis and updates stop invalidating', async () => {
+    cache.uncacheModel(TestModel);
+    try {
+      const testModel = await TestModel.create({ abc: '123', def: '456', ghi: '789' });
+
+      // A `cache: true` lookup should now go straight to the database and never touch Redis.
+      const result = await TestModel.findByPk(testModel.id, { cache: { enabled: true } });
+      expect(result).not.toBeNull();
+      expect(result!.def).toBe('456');
+
+      const redisKeys = await redis.keys(`${CACHE_NAMESPACE}:TestModel:*`);
+      expect(redisKeys).toHaveLength(0);
+
+      // The invalidation hooks are gone, so an update must not error and must not write to Redis.
+      testModel.ghi = '000';
+      await testModel.save({ hooks: true });
+      const afterUpdate = await redis.keys(`${CACHE_NAMESPACE}:TestModel:*`);
+      expect(afterUpdate).toHaveLength(0);
+    } finally {
+      // Restore the cached state so test ordering stays independent.
+      cache.cacheModel(TestModel, { uniqueKeys: [['abc']], ttl: 60 });
+    }
+  });
 });
