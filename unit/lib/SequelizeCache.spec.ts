@@ -3,8 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CacheUnavailableError } from '../../lib/errors/CacheUnavailableError';
 import { ConfigurationError } from '../../lib/errors/ConfigurationError';
+import { NotCachedError } from '../../lib/errors/NotCachedError';
 import { PeerContext } from '../../lib/peers';
-import { clearCachedModels, keysMatchCandidates, SequelizeCache, shouldUseCache } from '../../lib/SequelizeCache';
+import { keysMatchCandidates, SequelizeCache, shouldUseCache } from '../../lib/SequelizeCache';
 
 import type { CacheOptions as ModelCacheOptions, ModelKeyLookup } from '../../lib/CachedModelInstance';
 import type { CacheOptions, GlobalCacheOptions } from '../../lib/SequelizeCache';
@@ -100,7 +101,6 @@ describe('SequelizeCache', () => {
   });
 
   afterEach(() => {
-    clearCachedModels();
     SingleColPk.findByPk = pristineFindByPk;
     SingleColPk.findOne = pristineFindOne;
   });
@@ -263,6 +263,176 @@ describe('SequelizeCache', () => {
       cache.cacheModel(SingleColPk);
 
       expect(() => cache.cacheModel(SingleColPk)).toThrow('Model SingleColPk has already been cached');
+    });
+  });
+
+  describe('uncacheModel', () => {
+    function newCache() {
+      return new SequelizeCache({
+        engine: {
+          connection: null as any,
+          type: 'redis',
+        },
+      });
+    }
+
+    it('restores the original findOne and findByPk', () => {
+      const originalFindOne = SingleColPk.findOne;
+      const originalFindByPk = SingleColPk.findByPk;
+
+      const cache = newCache();
+      cache.cacheModel(SingleColPk);
+
+      // Caching swaps the finders out...
+      expect(SingleColPk.findOne).to.not.equal(originalFindOne);
+      expect(SingleColPk.findByPk).to.not.equal(originalFindByPk);
+
+      cache.uncacheModel(SingleColPk);
+
+      // ...and uncaching restores the exact originals.
+      expect(SingleColPk.findOne).to.equal(originalFindOne);
+      expect(SingleColPk.findByPk).to.equal(originalFindByPk);
+    });
+
+    it('removes the after hooks registered by caching', () => {
+      const cache = newCache();
+      cache.cacheModel(SingleColPk);
+
+      cache.uncacheModel(SingleColPk);
+
+      expect(SingleColPk.hasHook('afterUpdate')).toBeFalsy();
+      expect(SingleColPk.hasHook('afterDestroy')).toBeFalsy();
+      expect(SingleColPk.hasHook('afterBulkUpdate')).toBeFalsy();
+      expect(SingleColPk.hasHook('afterBulkDestroy')).toBeFalsy();
+    });
+
+    it('throws NotCachedError when the model was never cached', () => {
+      const cache = newCache();
+
+      expect(() => cache.uncacheModel(SingleColPk)).toThrow(NotCachedError);
+      expect(() => cache.uncacheModel(SingleColPk)).toThrow('Model SingleColPk is not cached');
+    });
+
+    it('throws NotCachedError when uncaching the same model twice', () => {
+      const cache = newCache();
+      cache.cacheModel(SingleColPk);
+
+      cache.uncacheModel(SingleColPk);
+
+      expect(() => cache.uncacheModel(SingleColPk)).toThrow(NotCachedError);
+    });
+
+    it('allows the model to be cached again after uncaching', () => {
+      const cache = newCache();
+      cache.cacheModel(SingleColPk);
+      cache.uncacheModel(SingleColPk);
+
+      // The model is no longer tracked, so re-caching must not throw AlreadyCachedError.
+      expect(() => cache.cacheModel(SingleColPk)).to.not.throw();
+    });
+
+    it('stops routing finder calls through the cache', async () => {
+      const dbFindByPk = vi.fn().mockResolvedValue('DB_PK');
+      SingleColPk.findByPk = dbFindByPk as any;
+
+      const cache = newCache();
+      cache.cacheModel(SingleColPk);
+
+      // While cached, a `cache: true` lookup consults the cache, not the original finder.
+      h.getModel.mockResolvedValue('CACHED');
+      await expect(SingleColPk.findByPk('abc', { cache: true })).resolves.toBe('CACHED');
+      expect(dbFindByPk).not.toHaveBeenCalled();
+      expect(h.getModel).toHaveBeenCalled();
+
+      cache.uncacheModel(SingleColPk);
+
+      // After uncaching, the original finder is restored and the cache is never touched.
+      h.getModel.mockClear();
+      await expect(SingleColPk.findByPk('abc', { cache: true })).resolves.toBe('DB_PK');
+      expect(dbFindByPk).toHaveBeenCalled();
+      expect(h.getModel).not.toHaveBeenCalled();
+    });
+
+    it('rejects invalidation calls with NotCachedError once the model has been uncached', async () => {
+      const cache = newCache();
+      cache.cacheModel(SingleColPk);
+
+      cache.uncacheModel(SingleColPk);
+
+      await expect(cache.invalidateAll(SingleColPk)).rejects.toThrow(NotCachedError);
+      await expect(cache.invalidateByPk(SingleColPk, 'abc')).rejects.toThrow(NotCachedError);
+      await expect(cache.invalidateInstance(SingleColPk, SingleColPk.build({ id: 'abc', name: 'x' })))
+        .rejects.toThrow(NotCachedError);
+
+      expect(h.invalidate).not.toHaveBeenCalled();
+      expect(h.invalidateAll).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('invalidation methods', () => {
+    function newCache() {
+      return new SequelizeCache({
+        engine: {
+          connection: null as any,
+          type: 'redis',
+        },
+      });
+    }
+
+    it('invalidateAll evicts every cached instance of the model', async () => {
+      const cache = newCache();
+      cache.cacheModel(SingleColPk);
+
+      await cache.invalidateAll(SingleColPk);
+
+      expect(h.invalidateAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('invalidateInstance evicts the supplied instance from the cache', async () => {
+      const cache = newCache();
+      cache.cacheModel(SingleColPk);
+
+      const instance = SingleColPk.build({ id: 'abc', name: 'x' });
+      await cache.invalidateInstance(SingleColPk, instance);
+
+      expect(h.invalidate).toHaveBeenCalledWith(instance);
+    });
+
+    it('invalidateByPk evicts the record for the primary key, reading it from the database rather than the cache', async () => {
+      const instance = SingleColPk.build({ id: 'abc', name: 'x' });
+      const dbFindByPk = vi.fn().mockResolvedValue(instance);
+      SingleColPk.findByPk = dbFindByPk as any;
+
+      const cache = newCache();
+      cache.cacheModel(SingleColPk);
+
+      await cache.invalidateByPk(SingleColPk, 'abc');
+
+      // The live record is fetched with caching disabled (so the lookup itself can't repopulate the
+      // cache), and only then is that instance evicted.
+      expect(dbFindByPk).toHaveBeenCalledWith('abc', { cache: false });
+      expect(h.getModel).not.toHaveBeenCalled();
+      expect(h.invalidate).toHaveBeenCalledWith(instance);
+    });
+
+    it('invalidateByPk is a no-op when no record exists for the primary key', async () => {
+      SingleColPk.findByPk = vi.fn().mockResolvedValue(null) as any;
+
+      const cache = newCache();
+      cache.cacheModel(SingleColPk);
+
+      await cache.invalidateByPk(SingleColPk, 'missing');
+
+      expect(h.invalidate).not.toHaveBeenCalled();
+    });
+
+    it('rejects with NotCachedError when the model was never cached', async () => {
+      const cache = newCache();
+
+      await expect(cache.invalidateAll(SingleColPk)).rejects.toThrow(NotCachedError);
+      await expect(cache.invalidateByPk(SingleColPk, 'abc')).rejects.toThrow(NotCachedError);
+      await expect(cache.invalidateInstance(SingleColPk, SingleColPk.build({ id: 'abc', name: 'x' })))
+        .rejects.toThrow(NotCachedError);
     });
   });
 

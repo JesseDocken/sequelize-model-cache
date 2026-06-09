@@ -18,6 +18,7 @@ import { AlreadyCachedError } from './errors/AlreadyCachedError';
 import { CacheUnavailableError } from './errors/CacheUnavailableError';
 import { ConfigurationError } from './errors/ConfigurationError';
 import { NonconformantQueryError } from './errors/NonconformantQueryError';
+import { NotCachedError } from './errors/NotCachedError';
 import { PeerContext } from './peers';
 import { isPromiseLike } from './util/promises';
 
@@ -40,6 +41,14 @@ import type {
   WhereOptions,
 } from 'sequelize';
 import type { Logger as WinstonLogger } from 'winston';
+
+type ModelCacheData = {
+  originalHooks: {
+    findOne: () => Promise<any>,
+    findByPk: () => Promise<any>,
+  },
+  cache: CachedModelInstance<any, any>,
+};
 
 export type EnablementFunction = (() => boolean) | (() => Promise<boolean>);
 export type FallbackOverrideOption = 'none' | FallbackOption;
@@ -101,7 +110,7 @@ export type GlobalCacheOptions = {
 };
 
 /**
- * Time-to-live options for te cached model.
+ * Time-to-live options for the cached model.
  */
 export type TtlOptions = {
   /**
@@ -198,7 +207,7 @@ const DEFAULT_NAMESPACE = 'modelcache';
 export class SequelizeCache {
   #opt: GlobalCacheOptions;
   #ctx: PeerContext;
-  private static cachedModels = new WeakSet<ModelStatic<any>>();
+  private cachedModels = new Map<ModelStatic<any>, ModelCacheData>();
 
   /**
    * Creates a new instance of `SequelizeCache` with the provided options.
@@ -242,17 +251,24 @@ export class SequelizeCache {
 
     const keys = cache.modelKeys;
 
-    const originalFindByPk = model.findByPk;
-    const originalFindOne = model.findOne;
-    const globalOpt = this.#opt;
-    const modelOpt = cache.options;
-    const ctx = this.#ctx;
-
-    if (SequelizeCache.cachedModels.has(model)) {
+    if (this.cachedModels.has(model)) {
       throw new AlreadyCachedError(model);
     }
 
-    SequelizeCache.cachedModels.add(model);
+    const originalFindByPk = model.findByPk;
+    const originalFindOne = model.findOne;
+
+    this.cachedModels.set(model, {
+      originalHooks: {
+        findByPk: originalFindByPk,
+        findOne: originalFindOne,
+      },
+      cache,
+    });
+
+    const globalOpt = this.#opt;
+    const modelOpt = cache.options;
+    const ctx = this.#ctx;
 
     model.findByPk = async function (
       id?: Identifier,
@@ -433,6 +449,73 @@ export class SequelizeCache {
     model.addHook('afterBulkUpdate', 'model-cache-bulk-update', bulkHandler);
     model.addHook('afterBulkDestroy', 'model-cache-bulk-destroy', bulkHandler);
   }
+
+  /**
+   * Restores the model back to its original functionality, disabling all caching and
+   * cache syncing functionality. This is primarily available for testing purposes, as
+   * disabling cache functionality is not recommended in a production environment.
+   * @param model The model to uncache
+   */
+  uncacheModel<M extends Model>(model: ModelStatic<M>): void;
+  uncacheModel(model: any): void;
+  uncacheModel<M extends Model = Model>(model: ModelStatic<M>) {
+    if (!this.cachedModels.has(model)) {
+      throw new NotCachedError(model);
+    }
+
+    const data = this.cachedModels.get(model)!;
+
+    model.findOne = data.originalHooks.findOne;
+    model.findByPk = data.originalHooks.findByPk;
+
+    model.removeHook('afterUpdate', 'model-cache-update');
+    model.removeHook('afterDestroy', 'model-cache-destroy');
+    model.removeHook('afterBulkUpdate', 'model-cache-bulk-update');
+    model.removeHook('afterBulkDestroy', 'model-cache-bulk-destroy');
+
+    this.cachedModels.delete(model);
+  }
+
+  /**
+   * Immediately invalidates the cached instance identified by the given primary key.  Does
+   * nothing if no record exists for the key.
+   * @param model the cached model to invalidate against
+   * @param id the primary key of the instance to invalidate
+   */
+  async invalidateByPk<M extends Model>(model: ModelStatic<M>, id: Identifier): Promise<void> {
+    const { cache } = this.#cacheDataFor(model);
+    const instance = await model.findByPk(id, { cache: false });
+    if (instance) {
+      await cache.invalidate(instance);
+    }
+  }
+
+  /**
+   * Immediately invalidates the given instance from the cache.
+   * @param model the cached model to invalidate against
+   * @param instance the instance to invalidate
+   */
+  async invalidateInstance<M extends Model>(model: ModelStatic<M>, instance: M): Promise<void> {
+    const { cache } = this.#cacheDataFor(model);
+    await cache.invalidate(instance);
+  }
+
+  /**
+   * Immediately invalidates every cached instance of the given model.
+   * @param model the cached model to invalidate
+   */
+  async invalidateAll<M extends Model>(model: ModelStatic<M>): Promise<void> {
+    const { cache } = this.#cacheDataFor(model);
+    await cache.invalidateAll();
+  }
+
+  #cacheDataFor<M extends Model>(model: ModelStatic<M>): ModelCacheData {
+    const data = this.cachedModels.get(model);
+    if (!data) {
+      throw new NotCachedError(model);
+    }
+    return data;
+  }
 }
 
 /**
@@ -605,12 +688,6 @@ function normalizeCacheOptions(options?: FindOptions<Model<any>>): FindCacheOpti
   } else {
     return options.cache;
   }
-}
-
-// This is for tests only.
-export function clearCachedModels() {
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-  (SequelizeCache as any).cachedModels = new WeakSet();
 }
 
 function normalizeTtlOptions(ttl?: number | TtlOptions): TtlOptions {

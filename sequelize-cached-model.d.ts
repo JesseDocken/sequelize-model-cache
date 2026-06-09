@@ -1,5 +1,3 @@
-import 'sequelize';
-
 import type { FallbackOverriderFunction } from './lib/SequelizeCache';
 
 type FallbackOption = 'fail' | 'database';
